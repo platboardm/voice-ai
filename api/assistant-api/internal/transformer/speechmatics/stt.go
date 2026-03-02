@@ -8,18 +8,217 @@ package internal_transformer_speechmatics
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"sync"
+	"sync/atomic"
+	"time"
 
+	"github.com/gorilla/websocket"
+
+	speechmatics_internal "github.com/rapidaai/api/assistant-api/internal/transformer/speechmatics/internal"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 )
 
-func NewSpeechmaticsSpeechToText(
-	ctx context.Context,
-	logger commons.Logger,
-	credential *protos.VaultCredential,
+type speechmaticsSTT struct {
+	*speechmaticsOption
+	ctx       context.Context
+	ctxCancel context.CancelFunc
+
+	mu            sync.Mutex
+	contextId     string
+	startedAtNano atomic.Int64
+
+	logger     commons.Logger
+	connection *websocket.Conn
+	onPacket   func(pkt ...internal_type.Packet) error
+}
+
+func NewSpeechmaticsSpeechToText(ctx context.Context, logger commons.Logger, credential *protos.VaultCredential,
 	onPacket func(pkt ...internal_type.Packet) error,
 	opts utils.Option) (internal_type.SpeechToTextTransformer, error) {
-	return nil, nil
+	smOpts, err := NewSpeechmaticsOption(logger, credential, opts)
+	if err != nil {
+		logger.Errorf("speechmatics-stt: initializing speechmatics failed %+v", err)
+		return nil, err
+	}
+	ctx2, contextCancel := context.WithCancel(ctx)
+	return &speechmaticsSTT{
+		ctx:                ctx2,
+		ctxCancel:          contextCancel,
+		onPacket:           onPacket,
+		logger:             logger,
+		speechmaticsOption: smOpts,
+	}, nil
+}
+
+func (*speechmaticsSTT) Name() string {
+	return "speechmatics-speech-to-text"
+}
+
+func (st *speechmaticsSTT) Initialize() error {
+	start := time.Now()
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+st.GetKey())
+	conn, resp, err := websocket.DefaultDialer.Dial(SPEECHMATICS_STT_URL, header)
+	if err != nil {
+		st.logger.Errorf("speechmatics-stt: error while connecting %s with response %v", err, resp)
+		return err
+	}
+
+	st.mu.Lock()
+	st.connection = conn
+	st.mu.Unlock()
+
+	startMsg := map[string]interface{}{
+		"message": "StartRecognition",
+		"audio_format": map[string]interface{}{
+			"type":        "raw",
+			"encoding":    "pcm_s16le",
+			"sample_rate": 16000,
+		},
+		"transcription_config": map[string]interface{}{
+			"language":        st.GetLanguage(),
+			"operating_point": "enhanced",
+		},
+	}
+	if err := conn.WriteJSON(startMsg); err != nil {
+		st.logger.Errorf("speechmatics-stt: error sending start recognition: %v", err)
+		return err
+	}
+
+	go st.speechToTextCallback(conn, st.ctx)
+	st.onPacket(internal_type.ConversationEventPacket{
+		Name: "stt",
+		Data: map[string]string{
+			"type":     "initialized",
+			"provider": st.Name(),
+			"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+		},
+		Time: time.Now(),
+	})
+	return nil
+}
+
+func (st *speechmaticsSTT) speechToTextCallback(conn *websocket.Conn, ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			st.logger.Infof("speechmatics-stt: context cancelled, stopping listener")
+			return
+		default:
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				if errors.Is(err, io.EOF) || websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+					st.logger.Infof("speechmatics-stt: websocket closed gracefully")
+					return
+				}
+				st.logger.Errorf("speechmatics-stt: websocket read error: %v", err)
+				return
+			}
+
+			var response speechmatics_internal.SpeechmaticsSTTResponse
+			if err := json.Unmarshal(msg, &response); err != nil {
+				st.logger.Errorf("speechmatics-stt: error parsing response: %v", err)
+				continue
+			}
+
+			st.mu.Lock()
+			ctxId := st.contextId
+			st.mu.Unlock()
+
+			switch response.Message {
+			case "AddPartialTranscript":
+				transcript := response.Metadata.Transcript
+				if transcript != "" && ctxId != "" {
+					st.onPacket(
+						internal_type.InterruptionPacket{ContextID: ctxId, Source: "word"},
+						internal_type.SpeechToTextPacket{
+							ContextID: ctxId,
+							Script:    transcript,
+							Interim:   true,
+						},
+						internal_type.ConversationEventPacket{
+							Name: "stt",
+							Data: map[string]string{"type": "interim"},
+							Time: time.Now(),
+						},
+					)
+				}
+			case "AddTranscript":
+				transcript := response.Metadata.Transcript
+				if transcript != "" && ctxId != "" {
+					startedNano := st.startedAtNano.Load()
+					if startedNano > 0 {
+						st.onPacket(internal_type.MessageMetricPacket{
+							ContextID: ctxId,
+							Metrics: []*protos.Metric{{
+								Name:  "stt_latency_ms",
+								Value: fmt.Sprintf("%d", (time.Now().UnixNano()-startedNano)/int64(time.Millisecond)),
+							}},
+						})
+						st.startedAtNano.Store(0)
+					}
+
+					st.onPacket(
+						internal_type.InterruptionPacket{ContextID: ctxId, Source: "word"},
+						internal_type.SpeechToTextPacket{
+							ContextID: ctxId,
+							Script:    transcript,
+							Interim:   false,
+						},
+						internal_type.ConversationEventPacket{
+							Name: "stt",
+							Data: map[string]string{"type": "completed"},
+							Time: time.Now(),
+						},
+					)
+				}
+			case "Error":
+				st.logger.Errorf("speechmatics-stt: server error: %s", string(msg))
+				st.onPacket(internal_type.ConversationEventPacket{
+					Name: "stt",
+					Data: map[string]string{"type": "error"},
+					Time: time.Now(),
+				})
+			}
+		}
+	}
+}
+
+func (st *speechmaticsSTT) Transform(ctx context.Context, in internal_type.UserAudioPacket) error {
+	st.startedAtNano.CompareAndSwap(0, time.Now().UnixNano())
+
+	st.mu.Lock()
+	st.contextId = in.ContextID
+	conn := st.connection
+	st.mu.Unlock()
+
+	if conn == nil {
+		return fmt.Errorf("speechmatics-stt: websocket connection is not initialized")
+	}
+
+	if err := conn.WriteMessage(websocket.BinaryMessage, in.Audio); err != nil {
+		st.logger.Errorf("speechmatics-stt: error sending audio: %v", err)
+		return err
+	}
+	return nil
+}
+
+func (st *speechmaticsSTT) Close(ctx context.Context) error {
+	st.ctxCancel()
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	if st.connection != nil {
+		st.connection.Close()
+		st.connection = nil
+	}
+	return nil
 }

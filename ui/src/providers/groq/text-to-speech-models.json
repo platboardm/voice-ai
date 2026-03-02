@@ -1,0 +1,4 @@
+[
+    { "model_id": "playai-tts", "name": "PlayAI TTS" },
+    { "model_id": "playai-tts-arabic", "name": "PlayAI TTS Arabic" }
+]

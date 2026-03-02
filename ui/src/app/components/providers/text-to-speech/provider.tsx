@@ -51,6 +51,41 @@ import {
   GetSarvamDefaultOptions,
   ValidateSarvamOptions,
 } from '@/app/components/providers/text-to-speech/sarvam';
+import {
+  ConfigureResembleAITextToSpeech,
+  GetResembleAIDefaultOptions,
+  ValidateResembleAIOptions,
+} from '@/app/components/providers/text-to-speech/resembleai';
+import {
+  ConfigureNeuPhonicTextToSpeech,
+  GetNeuPhonicDefaultOptions,
+  ValidateNeuPhonicOptions,
+} from '@/app/components/providers/text-to-speech/neuphonic';
+import {
+  ConfigureMiniMaxTextToSpeech,
+  GetMiniMaxDefaultOptions,
+  ValidateMiniMaxOptions,
+} from '@/app/components/providers/text-to-speech/minimax';
+import {
+  ConfigureGroqTextToSpeech,
+  GetGroqDefaultOptions,
+  ValidateGroqOptions,
+} from '@/app/components/providers/text-to-speech/groq';
+import {
+  ConfigureSpeechmaticsTextToSpeech,
+  GetSpeechmaticsDefaultOptions,
+  ValidateSpeechmaticsOptions,
+} from '@/app/components/providers/text-to-speech/speechmatics';
+import {
+  ConfigureNvidiaTextToSpeech,
+  GetNvidiaDefaultOptions,
+  ValidateNvidiaOptions,
+} from '@/app/components/providers/text-to-speech/nvidia';
+import {
+  ConfigureAWSTextToSpeech,
+  GetAWSDefaultOptions,
+  ValidateAWSOptions,
+} from '@/app/components/providers/text-to-speech/aws';
 
 /**
  *
@@ -109,6 +144,20 @@ export const GetDefaultTextToSpeechIfInvalid = (
       return GetSarvamDefaultOptions(parameters);
     case 'rime':
       return GetRimeDefaultOptions(parameters);
+    case 'resembleai':
+      return GetResembleAIDefaultOptions(parameters);
+    case 'neuphonic':
+      return GetNeuPhonicDefaultOptions(parameters);
+    case 'minimax':
+      return GetMiniMaxDefaultOptions(parameters);
+    case 'groq':
+      return GetGroqDefaultOptions(parameters);
+    case 'speechmatics':
+      return GetSpeechmaticsDefaultOptions(parameters);
+    case 'nvidia':
+      return GetNvidiaDefaultOptions(parameters);
+    case 'aws':
+      return GetAWSDefaultOptions(parameters);
     default:
       return parameters;
   }
@@ -137,6 +186,20 @@ export const ValidateTextToSpeechIfInvalid = (
       return ValidateSarvamOptions(parameters);
     case 'rime':
       return ValidateRimeOptions(parameters);
+    case 'resembleai':
+      return ValidateResembleAIOptions(parameters);
+    case 'neuphonic':
+      return ValidateNeuPhonicOptions(parameters);
+    case 'minimax':
+      return ValidateMiniMaxOptions(parameters);
+    case 'groq':
+      return ValidateGroqOptions(parameters);
+    case 'speechmatics':
+      return ValidateSpeechmaticsOptions(parameters);
+    case 'nvidia':
+      return ValidateNvidiaOptions(parameters);
+    case 'aws':
+      return ValidateAWSOptions(parameters);
     default:
       return undefined;
   }
@@ -207,6 +270,55 @@ export const TextToSpeechConfigComponent: FC<ProviderComponentProps> = ({
     case 'rime':
       return (
         <ConfigureRimeTextToSpeech
+          parameters={parameters}
+          onParameterChange={onChangeParameter}
+        />
+      );
+    case 'resembleai':
+      return (
+        <ConfigureResembleAITextToSpeech
+          parameters={parameters}
+          onParameterChange={onChangeParameter}
+        />
+      );
+    case 'neuphonic':
+      return (
+        <ConfigureNeuPhonicTextToSpeech
+          parameters={parameters}
+          onParameterChange={onChangeParameter}
+        />
+      );
+    case 'minimax':
+      return (
+        <ConfigureMiniMaxTextToSpeech
+          parameters={parameters}
+          onParameterChange={onChangeParameter}
+        />
+      );
+    case 'groq':
+      return (
+        <ConfigureGroqTextToSpeech
+          parameters={parameters}
+          onParameterChange={onChangeParameter}
+        />
+      );
+    case 'speechmatics':
+      return (
+        <ConfigureSpeechmaticsTextToSpeech
+          parameters={parameters}
+          onParameterChange={onChangeParameter}
+        />
+      );
+    case 'nvidia':
+      return (
+        <ConfigureNvidiaTextToSpeech
+          parameters={parameters}
+          onParameterChange={onChangeParameter}
+        />
+      );
+    case 'aws':
+      return (
+        <ConfigureAWSTextToSpeech
           parameters={parameters}
           onParameterChange={onChangeParameter}
         />

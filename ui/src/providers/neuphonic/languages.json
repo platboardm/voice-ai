@@ -1,0 +1,12 @@
+[
+    { "language_id": "en", "name": "English" },
+    { "language_id": "de", "name": "German" },
+    { "language_id": "es", "name": "Spanish" },
+    { "language_id": "nl", "name": "Dutch" },
+    { "language_id": "ar", "name": "Arabic" },
+    { "language_id": "fr", "name": "French" },
+    { "language_id": "pt", "name": "Portuguese" },
+    { "language_id": "ru", "name": "Russian" },
+    { "language_id": "hi", "name": "Hindi" },
+    { "language_id": "zh", "name": "Chinese" }
+]

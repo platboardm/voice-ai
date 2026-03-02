@@ -6,6 +6,11 @@ import {
   ValidateAssemblyAIOptions,
 } from '@/app/components/providers/speech-to-text/assemblyai';
 import {
+  ConfigureAWSSpeechToText,
+  GetAWSDefaultOptions,
+  ValidateAWSOptions,
+} from '@/app/components/providers/speech-to-text/aws';
+import {
   ConfigureAzureSpeechToText,
   GetAzureDefaultOptions,
   ValidateAzureOptions,
@@ -25,6 +30,16 @@ import {
   GetGoogleDefaultOptions,
   ValidateGoogleOptions,
 } from '@/app/components/providers/speech-to-text/google-speech-service';
+import {
+  ConfigureGroqSpeechToText,
+  GetGroqDefaultOptions,
+  ValidateGroqOptions,
+} from '@/app/components/providers/speech-to-text/groq';
+import {
+  ConfigureNvidiaSpeechToText,
+  GetNvidiaDefaultOptions,
+  ValidateNvidiaOptions,
+} from '@/app/components/providers/speech-to-text/nvidia';
 import { ConfigureOpenAISpeechToText } from '@/app/components/providers/speech-to-text/openai';
 import { FC } from 'react';
 import {
@@ -32,6 +47,11 @@ import {
   GetSarvamDefaultOptions,
   ValidateSarvamOptions,
 } from '@/app/components/providers/speech-to-text/sarvam';
+import {
+  ConfigureSpeechmaticsSpeechToText,
+  GetSpeechmaticsDefaultOptions,
+  ValidateSpeechmaticsOptions,
+} from '@/app/components/providers/speech-to-text/speechmatics';
 
 export const GetDefaultSpeechToTextIfInvalid = (
   provider: string,
@@ -50,6 +70,14 @@ export const GetDefaultSpeechToTextIfInvalid = (
       return GetCartesiaDefaultOptions(parameters);
     case 'sarvamai':
       return GetSarvamDefaultOptions(parameters);
+    case 'groq':
+      return GetGroqDefaultOptions(parameters);
+    case 'speechmatics':
+      return GetSpeechmaticsDefaultOptions(parameters);
+    case 'nvidia':
+      return GetNvidiaDefaultOptions(parameters);
+    case 'aws':
+      return GetAWSDefaultOptions(parameters);
     default:
       return parameters;
   }
@@ -72,6 +100,14 @@ export const ValidateSpeechToTextIfInvalid = (
       return ValidateCartesiaOptions(parameters);
     case 'sarvamai':
       return ValidateSarvamOptions(parameters);
+    case 'groq':
+      return ValidateGroqOptions(parameters);
+    case 'speechmatics':
+      return ValidateSpeechmaticsOptions(parameters);
+    case 'nvidia':
+      return ValidateNvidiaOptions(parameters);
+    case 'aws':
+      return ValidateAWSOptions(parameters);
     default:
       return undefined;
   }
@@ -180,6 +216,34 @@ export const SpeechToTextConfigComponent: FC<ProviderComponentProps> = ({
     case 'sarvamai':
       return (
         <ConfigureSarvamSpeechToText
+          parameters={parameters}
+          onParameterChange={onChangeParameter}
+        />
+      );
+    case 'groq':
+      return (
+        <ConfigureGroqSpeechToText
+          parameters={parameters}
+          onParameterChange={onChangeParameter}
+        />
+      );
+    case 'speechmatics':
+      return (
+        <ConfigureSpeechmaticsSpeechToText
+          parameters={parameters}
+          onParameterChange={onChangeParameter}
+        />
+      );
+    case 'nvidia':
+      return (
+        <ConfigureNvidiaSpeechToText
+          parameters={parameters}
+          onParameterChange={onChangeParameter}
+        />
+      );
+    case 'aws':
+      return (
+        <ConfigureAWSSpeechToText
           parameters={parameters}
           onParameterChange={onChangeParameter}
         />

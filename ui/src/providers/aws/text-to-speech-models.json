@@ -1,0 +1,6 @@
+[
+    { "model_id": "neural", "name": "Neural" },
+    { "model_id": "standard", "name": "Standard" },
+    { "model_id": "generative", "name": "Generative" },
+    { "model_id": "long-form", "name": "Long Form" }
+]

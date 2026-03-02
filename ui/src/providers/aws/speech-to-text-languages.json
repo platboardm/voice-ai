@@ -1,0 +1,17 @@
+[
+    { "code": "en-US", "name": "English (US)" },
+    { "code": "en-GB", "name": "English (UK)" },
+    { "code": "en-AU", "name": "English (Australia)" },
+    { "code": "es-US", "name": "Spanish (US)" },
+    { "code": "es-ES", "name": "Spanish (Spain)" },
+    { "code": "fr-FR", "name": "French" },
+    { "code": "fr-CA", "name": "French (Canada)" },
+    { "code": "de-DE", "name": "German" },
+    { "code": "it-IT", "name": "Italian" },
+    { "code": "pt-BR", "name": "Portuguese (Brazil)" },
+    { "code": "ja-JP", "name": "Japanese" },
+    { "code": "ko-KR", "name": "Korean" },
+    { "code": "zh-CN", "name": "Chinese (Simplified)" },
+    { "code": "hi-IN", "name": "Hindi" },
+    { "code": "ar-SA", "name": "Arabic" }
+]

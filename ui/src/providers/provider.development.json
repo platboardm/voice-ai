@@ -168,31 +168,33 @@
         ]
     },
     {
-        "code": "aws-bedrock",
-        "name": "AWS Bedrock",
+        "code": "aws",
+        "name": "AWS",
         "description": "Amazon Web Services (AWS) offers a broad set of global cloud-based products including compute, storage, databases, analytics, and AI services.",
         "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/1254821443460603620.png",
         "featureList": [
+            "stt",
+            "tts",
             "external"
         ],
         "configurations": [
             {
                 "name": "access_key_id",
                 "type": "string",
-                "label": "access_key_id"
+                "label": "Access Key ID"
             },
             {
                 "name": "secret_access_key",
                 "type": "string",
-                "label": "secret_access_key"
+                "label": "Secret Access Key"
             },
             {
                 "name": "region",
                 "type": "string",
-                "label": "region"
+                "label": "Region"
             }
         ],
-        "website": "https://aws.amazon.com/bedrock/"
+        "website": "https://aws.amazon.com"
     },
     {
         "code": "azure-speech-service",
@@ -524,5 +526,120 @@
             }
         ],
         "website": "https://www.sarvam.ai/"
+    },
+    {
+        "code": "resembleai",
+        "name": "Resemble AI",
+        "description": "Resemble AI provides high-quality voice cloning and text-to-speech synthesis with real-time WebSocket streaming.",
+        "featureList": [
+            "tts",
+            "external"
+        ],
+        "configurations": [
+            {
+                "name": "key",
+                "type": "string",
+                "label": "API Key"
+            }
+        ],
+        "website": "https://www.resemble.ai"
+    },
+    {
+        "code": "neuphonic",
+        "name": "Neuphonic",
+        "description": "Neuphonic offers ultra-low-latency text-to-speech with natural-sounding voices and multilingual support.",
+        "featureList": [
+            "tts",
+            "external"
+        ],
+        "configurations": [
+            {
+                "name": "key",
+                "type": "string",
+                "label": "API Key"
+            }
+        ],
+        "website": "https://www.neuphonic.com"
+    },
+    {
+        "code": "minimax",
+        "name": "MiniMax",
+        "description": "MiniMax provides advanced text-to-speech synthesis with streaming SSE support and multiple voice options.",
+        "featureList": [
+            "tts",
+            "external"
+        ],
+        "configurations": [
+            {
+                "name": "key",
+                "type": "string",
+                "label": "API Key"
+            },
+            {
+                "name": "group_id",
+                "type": "string",
+                "label": "Group ID"
+            }
+        ],
+        "website": "https://www.minimax.io"
+    },
+    {
+        "code": "groq",
+        "name": "Groq",
+        "description": "Groq provides ultra-fast AI inference with OpenAI-compatible speech-to-text and text-to-speech APIs.",
+        "featureList": [
+            "stt",
+            "tts",
+            "external"
+        ],
+        "configurations": [
+            {
+                "name": "key",
+                "type": "string",
+                "label": "API Key"
+            }
+        ],
+        "website": "https://groq.com"
+    },
+    {
+        "code": "speechmatics",
+        "name": "Speechmatics",
+        "description": "Speechmatics offers enterprise-grade speech recognition and text-to-speech with high accuracy and multilingual support.",
+        "featureList": [
+            "stt",
+            "tts",
+            "external"
+        ],
+        "configurations": [
+            {
+                "name": "key",
+                "type": "string",
+                "label": "API Key"
+            }
+        ],
+        "website": "https://www.speechmatics.com"
+    },
+    {
+        "code": "nvidia",
+        "name": "NVIDIA",
+        "description": "NVIDIA Riva provides GPU-accelerated speech AI with real-time speech recognition and text-to-speech synthesis.",
+        "featureList": [
+            "stt",
+            "tts",
+            "external"
+        ],
+        "configurations": [
+            {
+                "name": "key",
+                "type": "string",
+                "label": "API Key"
+            },
+            {
+                "name": "function_id",
+                "type": "string",
+                "label": "Function ID"
+            }
+        ],
+        "website": "https://www.nvidia.com/en-us/ai-data-science/products/riva/"
     }
 ]

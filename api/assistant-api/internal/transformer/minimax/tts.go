@@ -4,27 +4,29 @@
 // Licensed under GPL-2.0 with Rapida Additional Terms.
 // See LICENSE.md or contact sales@rapida.ai for commercial usage.
 
-package internal_transformer_speechmatics
+package internal_transformer_minimax
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	minimax_internal "github.com/rapidaai/api/assistant-api/internal/transformer/minimax/internal"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 )
 
-type speechmaticsTTS struct {
-	*speechmaticsOption
+type minimaxTTS struct {
+	*minimaxOption
 	ctx       context.Context
 	ctxCancel context.CancelFunc
 
@@ -39,25 +41,25 @@ type speechmaticsTTS struct {
 	onPacket func(pkt ...internal_type.Packet) error
 }
 
-func NewSpeechmaticsTextToSpeech(ctx context.Context, logger commons.Logger, credential *protos.VaultCredential,
+func NewMiniMaxTextToSpeech(ctx context.Context, logger commons.Logger, credential *protos.VaultCredential,
 	onPacket func(pkt ...internal_type.Packet) error,
 	opts utils.Option) (internal_type.TextToSpeechTransformer, error) {
-	smOpts, err := NewSpeechmaticsOption(logger, credential, opts)
+	minimaxOpts, err := NewMiniMaxOption(logger, credential, opts)
 	if err != nil {
-		logger.Errorf("speechmatics-tts: initializing speechmatics failed %+v", err)
+		logger.Errorf("minimax-tts: initializing minimax failed %+v", err)
 		return nil, err
 	}
 	ctx2, contextCancel := context.WithCancel(ctx)
-	return &speechmaticsTTS{
-		ctx:                ctx2,
-		ctxCancel:          contextCancel,
-		onPacket:           onPacket,
-		logger:             logger,
-		speechmaticsOption: smOpts,
+	return &minimaxTTS{
+		ctx:           ctx2,
+		ctxCancel:     contextCancel,
+		onPacket:      onPacket,
+		logger:        logger,
+		minimaxOption: minimaxOpts,
 	}, nil
 }
 
-func (ct *speechmaticsTTS) Initialize() error {
+func (ct *minimaxTTS) Initialize() error {
 	start := time.Now()
 	ct.onPacket(internal_type.ConversationEventPacket{
 		Name: "tts",
@@ -71,11 +73,11 @@ func (ct *speechmaticsTTS) Initialize() error {
 	return nil
 }
 
-func (*speechmaticsTTS) Name() string {
-	return "speechmatics-text-to-speech"
+func (*minimaxTTS) Name() string {
+	return "minimax-text-to-speech"
 }
 
-func (t *speechmaticsTTS) flush() {
+func (t *minimaxTTS) flush() {
 	t.mu.Lock()
 	text := t.textBuffer.String()
 	t.textBuffer.Reset()
@@ -89,22 +91,29 @@ func (t *speechmaticsTTS) flush() {
 	go t.streamHTTPTTS(text, ctxId)
 }
 
-func (t *speechmaticsTTS) streamHTTPTTS(text string, ctxId string) {
-	voice := t.GetVoice()
-	ttsURL := fmt.Sprintf("%s/%s?output_format=pcm_16000", SPEECHMATICS_TTS_URL, voice)
-
+func (t *minimaxTTS) streamHTTPTTS(text string, ctxId string) {
 	payload := map[string]interface{}{
-		"text": text,
+		"stream": true,
+		"model":  t.GetModel(),
+		"text":   text,
+		"voice_setting": map[string]interface{}{
+			"voice_id": t.GetVoice(),
+		},
+		"audio_setting": map[string]interface{}{
+			"format":      "pcm",
+			"sample_rate": 16000,
+		},
 	}
+
 	body, err := json.Marshal(payload)
 	if err != nil {
-		t.logger.Errorf("speechmatics-tts: error marshalling request: %v", err)
+		t.logger.Errorf("minimax-tts: error marshalling request: %v", err)
 		return
 	}
 
-	req, err := http.NewRequestWithContext(t.ctx, "POST", ttsURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(t.ctx, "POST", t.GetAPIURL(), bytes.NewReader(body))
 	if err != nil {
-		t.logger.Errorf("speechmatics-tts: error creating request: %v", err)
+		t.logger.Errorf("minimax-tts: error creating request: %v", err)
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+t.GetKey())
@@ -112,32 +121,40 @@ func (t *speechmaticsTTS) streamHTTPTTS(text string, ctxId string) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.logger.Errorf("speechmatics-tts: error sending request: %v", err)
+		t.logger.Errorf("minimax-tts: error sending request: %v", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		t.logger.Errorf("speechmatics-tts: unexpected status code: %d, body: %s", resp.StatusCode, string(respBody))
+		t.logger.Errorf("minimax-tts: unexpected status code: %d", resp.StatusCode)
 		return
 	}
 
-	buf := make([]byte, 4096)
-	firstChunk := true
-	for {
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
 		select {
 		case <-t.ctx.Done():
 			return
 		default:
 		}
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			audioChunk := make([]byte, n)
-			copy(audioChunk, buf[:n])
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
 
-			if firstChunk {
-				firstChunk = false
+		var sseResp minimax_internal.MiniMaxTextToSpeechSSEResponse
+		if err := json.Unmarshal([]byte(data), &sseResp); err != nil {
+			t.logger.Errorf("minimax-tts: error parsing SSE data: %v", err)
+			continue
+		}
+
+		if sseResp.Data.Audio != "" {
+			if rawAudioData, err := hex.DecodeString(sseResp.Data.Audio); err == nil {
 				t.mu.Lock()
 				startedAt := t.ttsStartedAt
 				metricSent := t.ttsMetricSent
@@ -154,15 +171,10 @@ func (t *speechmaticsTTS) streamHTTPTTS(text string, ctxId string) {
 						}},
 					})
 				}
+				t.onPacket(internal_type.TextToSpeechAudioPacket{ContextID: ctxId, AudioChunk: rawAudioData})
+			} else {
+				t.logger.Errorf("minimax-tts: error decoding hex audio: %v", err)
 			}
-
-			t.onPacket(internal_type.TextToSpeechAudioPacket{ContextID: ctxId, AudioChunk: audioChunk})
-		}
-		if err != nil {
-			if err != io.EOF {
-				t.logger.Errorf("speechmatics-tts: error reading response body: %v", err)
-			}
-			break
 		}
 	}
 
@@ -176,7 +188,7 @@ func (t *speechmaticsTTS) streamHTTPTTS(text string, ctxId string) {
 	)
 }
 
-func (t *speechmaticsTTS) Transform(ctx context.Context, in internal_type.LLMPacket) error {
+func (t *minimaxTTS) Transform(ctx context.Context, in internal_type.LLMPacket) error {
 	t.mu.Lock()
 	currentCtx := t.contextId
 	if in.ContextId() != t.contextId {
@@ -221,12 +233,12 @@ func (t *speechmaticsTTS) Transform(ctx context.Context, in internal_type.LLMPac
 		t.flush()
 		return nil
 	default:
-		return fmt.Errorf("speechmatics-tts: unsupported input type %T", in)
+		return fmt.Errorf("minimax-tts: unsupported input type %T", in)
 	}
 	return nil
 }
 
-func (t *speechmaticsTTS) Close(ctx context.Context) error {
+func (t *minimaxTTS) Close(ctx context.Context) error {
 	t.ctxCancel()
 	return nil
 }

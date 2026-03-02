@@ -1,0 +1,8 @@
+[
+    { "voice_id": "male-qn-qingse", "name": "Qingse (Male)" },
+    { "voice_id": "female-shaonv", "name": "Shaonv (Female)" },
+    { "voice_id": "female-yujie", "name": "Yujie (Female)" },
+    { "voice_id": "male-qn-jingying", "name": "Jingying (Male)" },
+    { "voice_id": "presenter_male", "name": "Presenter (Male)" },
+    { "voice_id": "presenter_female", "name": "Presenter (Female)" }
+]

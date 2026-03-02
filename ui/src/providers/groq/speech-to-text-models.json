@@ -1,0 +1,4 @@
+[
+    { "id": "whisper-large-v3-turbo", "name": "Whisper Large V3 Turbo" },
+    { "id": "whisper-large-v3", "name": "Whisper Large V3" }
+]

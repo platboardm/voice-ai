@@ -1,0 +1,15 @@
+[
+    { "language_id": "en-US", "name": "English (US)" },
+    { "language_id": "en-GB", "name": "English (UK)" },
+    { "language_id": "es-ES", "name": "Spanish (Spain)" },
+    { "language_id": "es-US", "name": "Spanish (US)" },
+    { "language_id": "fr-FR", "name": "French" },
+    { "language_id": "de-DE", "name": "German" },
+    { "language_id": "it-IT", "name": "Italian" },
+    { "language_id": "pt-BR", "name": "Portuguese (Brazil)" },
+    { "language_id": "ja-JP", "name": "Japanese" },
+    { "language_id": "ko-KR", "name": "Korean" },
+    { "language_id": "zh-CN", "name": "Chinese (Simplified)" },
+    { "language_id": "hi-IN", "name": "Hindi" },
+    { "language_id": "ar-SA", "name": "Arabic" }
+]

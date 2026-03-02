@@ -1,0 +1,5 @@
+[
+    { "voice_id": "en-US-1", "name": "English US 1" },
+    { "voice_id": "en-GB-1", "name": "English GB 1" },
+    { "voice_id": "custom", "name": "Custom Voice (enter ID)" }
+]

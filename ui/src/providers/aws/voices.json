@@ -1,0 +1,16 @@
+[
+    { "voice_id": "Joanna", "name": "Joanna (Female, en-US)", "engine": "neural" },
+    { "voice_id": "Matthew", "name": "Matthew (Male, en-US)", "engine": "neural" },
+    { "voice_id": "Amy", "name": "Amy (Female, en-GB)", "engine": "neural" },
+    { "voice_id": "Brian", "name": "Brian (Male, en-GB)", "engine": "neural" },
+    { "voice_id": "Léa", "name": "Léa (Female, fr-FR)", "engine": "neural" },
+    { "voice_id": "Vicki", "name": "Vicki (Female, de-DE)", "engine": "neural" },
+    { "voice_id": "Lucia", "name": "Lucia (Female, es-ES)", "engine": "neural" },
+    { "voice_id": "Camila", "name": "Camila (Female, pt-BR)", "engine": "neural" },
+    { "voice_id": "Takumi", "name": "Takumi (Male, ja-JP)", "engine": "neural" },
+    { "voice_id": "Seoyeon", "name": "Seoyeon (Female, ko-KR)", "engine": "neural" },
+    { "voice_id": "Zhiyu", "name": "Zhiyu (Female, zh-CN)", "engine": "neural" },
+    { "voice_id": "Kajal", "name": "Kajal (Female, hi-IN)", "engine": "neural" },
+    { "voice_id": "Ruth", "name": "Ruth (Female, en-US)", "engine": "generative" },
+    { "voice_id": "Stephen", "name": "Stephen (Male, en-US)", "engine": "generative" }
+]

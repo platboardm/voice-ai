@@ -317,5 +317,90 @@ export const ASSEMBLYAI_LANGUAGE = () => {
 };
 
 /**
- *
+ * Resemble AI
  */
+export const RESEMBLEAI_VOICE = () => {
+  return require('./resembleai/voices.json');
+};
+
+/**
+ * Neuphonic
+ */
+export const NEUPHONIC_VOICE = () => {
+  return require('./neuphonic/voices.json');
+};
+
+export const NEUPHONIC_LANGUAGE = () => {
+  return require('./neuphonic/languages.json');
+};
+
+/**
+ * MiniMax
+ */
+export const MINIMAX_MODEL = () => {
+  return require('./minimax/models.json');
+};
+
+export const MINIMAX_VOICE = () => {
+  return require('./minimax/voices.json');
+};
+
+/**
+ * Groq
+ */
+export const GROQ_SPEECH_TO_TEXT_MODEL = () => {
+  return require('./groq/speech-to-text-models.json');
+};
+
+export const GROQ_SPEECH_TO_TEXT_LANGUAGE = () => {
+  return require('./groq/speech-to-text-languages.json');
+};
+
+export const GROQ_TEXT_TO_SPEECH_MODEL = () => {
+  return require('./groq/text-to-speech-models.json');
+};
+
+export const GROQ_VOICE = () => {
+  return require('./groq/voices.json');
+};
+
+/**
+ * Speechmatics
+ */
+export const SPEECHMATICS_LANGUAGE = () => {
+  return require('./speechmatics/languages.json');
+};
+
+export const SPEECHMATICS_VOICE = () => {
+  return require('./speechmatics/voices.json');
+};
+
+/**
+ * NVIDIA
+ */
+export const NVIDIA_LANGUAGE = () => {
+  return require('./nvidia/languages.json');
+};
+
+export const NVIDIA_VOICE = () => {
+  return require('./nvidia/voices.json');
+};
+
+/**
+ * AWS
+ */
+export const AWS_SPEECH_TO_TEXT_LANGUAGE = () => {
+  return require('./aws/speech-to-text-languages.json');
+};
+
+export const AWS_TEXT_TO_SPEECH_MODEL = () => {
+  return require('./aws/text-to-speech-models.json');
+};
+
+export const AWS_VOICE = () => {
+  return require('./aws/voices.json');
+};
+
+export const AWS_LANGUAGE = () => {
+  return require('./aws/languages.json');
+};

@@ -1,0 +1,12 @@
+[
+    { "voice_id": "Arista-PlayAI", "name": "Arista" },
+    { "voice_id": "Atlas-PlayAI", "name": "Atlas" },
+    { "voice_id": "Celeste-PlayAI", "name": "Celeste" },
+    { "voice_id": "Fritz-PlayAI", "name": "Fritz" },
+    { "voice_id": "Indigo-PlayAI", "name": "Indigo" },
+    { "voice_id": "Mamaw-PlayAI", "name": "Mamaw" },
+    { "voice_id": "Nolan-PlayAI", "name": "Nolan" },
+    { "voice_id": "Quinn-PlayAI", "name": "Quinn" },
+    { "voice_id": "Ruby-PlayAI", "name": "Ruby" },
+    { "voice_id": "Thunder-PlayAI", "name": "Thunder" }
+]
