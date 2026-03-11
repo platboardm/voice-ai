@@ -94,9 +94,9 @@ func (st *nvidiaSTT) transcribe(audioData []byte, ctxId string) {
 	apiURL := fmt.Sprintf("https://api.nvcf.nvidia.com/v2/nvcf/pexec/functions/%s", st.GetFunctionId())
 
 	payload := map[string]interface{}{
-		"audio":        base64.StdEncoding.EncodeToString(audioData),
-		"encoding":     "LINEAR_PCM",
-		"sample_rate":  16000,
+		"audio":         base64.StdEncoding.EncodeToString(audioData),
+		"encoding":      "LINEAR_PCM",
+		"sample_rate":   16000,
 		"language_code": st.GetLanguage(),
 	}
 

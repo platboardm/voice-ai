@@ -26,28 +26,28 @@ import (
 
 type nopLogger struct{}
 
-func (nopLogger) Level() zapcore.Level                                  { return zapcore.DebugLevel }
-func (nopLogger) Debug(...interface{})                                  {}
-func (nopLogger) Debugf(string, ...interface{})                         {}
-func (nopLogger) Debugw(string, ...interface{})                         {}
-func (nopLogger) Info(...interface{})                                   {}
-func (nopLogger) Infof(string, ...interface{})                          {}
-func (nopLogger) Infow(string, ...interface{})                          {}
-func (nopLogger) Warn(...interface{})                                   {}
-func (nopLogger) Warnf(string, ...interface{})                          {}
-func (nopLogger) Warnw(string, ...interface{})                          {}
-func (nopLogger) Error(...interface{})                                  {}
-func (nopLogger) Errorf(string, ...interface{})                         {}
-func (nopLogger) Errorw(string, ...interface{})                         {}
-func (nopLogger) DPanic(...interface{})                                 {}
-func (nopLogger) DPanicf(string, ...interface{})                        {}
-func (nopLogger) Panic(...interface{})                                  {}
-func (nopLogger) Panicf(string, ...interface{})                         {}
-func (nopLogger) Fatal(...interface{})                                  {}
-func (nopLogger) Fatalf(string, ...interface{})                         {}
-func (nopLogger) Benchmark(string, time.Duration)                       {}
-func (nopLogger) Tracef(context.Context, string, ...interface{})        {}
-func (nopLogger) Sync() error                                          { return nil }
+func (nopLogger) Level() zapcore.Level                           { return zapcore.DebugLevel }
+func (nopLogger) Debug(...interface{})                           {}
+func (nopLogger) Debugf(string, ...interface{})                  {}
+func (nopLogger) Debugw(string, ...interface{})                  {}
+func (nopLogger) Info(...interface{})                            {}
+func (nopLogger) Infof(string, ...interface{})                   {}
+func (nopLogger) Infow(string, ...interface{})                   {}
+func (nopLogger) Warn(...interface{})                            {}
+func (nopLogger) Warnf(string, ...interface{})                   {}
+func (nopLogger) Warnw(string, ...interface{})                   {}
+func (nopLogger) Error(...interface{})                           {}
+func (nopLogger) Errorf(string, ...interface{})                  {}
+func (nopLogger) Errorw(string, ...interface{})                  {}
+func (nopLogger) DPanic(...interface{})                          {}
+func (nopLogger) DPanicf(string, ...interface{})                 {}
+func (nopLogger) Panic(...interface{})                           {}
+func (nopLogger) Panicf(string, ...interface{})                  {}
+func (nopLogger) Fatal(...interface{})                           {}
+func (nopLogger) Fatalf(string, ...interface{})                  {}
+func (nopLogger) Benchmark(string, time.Duration)                {}
+func (nopLogger) Tracef(context.Context, string, ...interface{}) {}
+func (nopLogger) Sync() error                                    { return nil }
 
 // =============================================================================
 // Mock: packetCollector — thread-safe packet recorder
@@ -123,10 +123,10 @@ func (m *mockTalker) CloseSend() error {
 }
 
 func (m *mockTalker) Header() (metadata.MD, error) { return nil, nil }
-func (m *mockTalker) Trailer() metadata.MD          { return nil }
-func (m *mockTalker) Context() context.Context       { return context.Background() }
-func (m *mockTalker) SendMsg(any) error              { return nil }
-func (m *mockTalker) RecvMsg(any) error              { return nil }
+func (m *mockTalker) Trailer() metadata.MD         { return nil }
+func (m *mockTalker) Context() context.Context     { return context.Background() }
+func (m *mockTalker) SendMsg(any) error            { return nil }
+func (m *mockTalker) RecvMsg(any) error            { return nil }
 
 // =============================================================================
 // Mock: mockCommunication — satisfies internal_type.Communication

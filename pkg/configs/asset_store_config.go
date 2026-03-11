@@ -18,12 +18,12 @@ const (
 // asset_upload_bucket
 
 type AssetStoreConfig struct {
-	StorageType       string        `mapstructure:"storage_type" validate:"required"`
-	StoragePathPrefix string        `mapstructure:"storage_path_prefix"`
-	PublicUrlPrefix   *string       `mapstructure:"public_url_prefix"`
-	Auth              *AwsConfig    `mapstructure:"auth"`
-	AzureAuth         *AzureConfig  `mapstructure:"azure_auth"`
-	GCSAuth           *GCSConfig    `mapstructure:"gcs_auth"`
+	StorageType       string       `mapstructure:"storage_type" validate:"required"`
+	StoragePathPrefix string       `mapstructure:"storage_path_prefix"`
+	PublicUrlPrefix   *string      `mapstructure:"public_url_prefix"`
+	Auth              *AwsConfig   `mapstructure:"auth"`
+	AzureAuth         *AzureConfig `mapstructure:"azure_auth"`
+	GCSAuth           *GCSConfig   `mapstructure:"gcs_auth"`
 }
 
 func (cfg *AssetStoreConfig) Type() StorageType {

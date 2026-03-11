@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	GROQ_STT_URL          = "https://api.groq.com/openai/v1/audio/transcriptions"
-	GROQ_TTS_URL          = "https://api.groq.com/openai/v1/audio/speech"
+	GROQ_STT_URL           = "https://api.groq.com/openai/v1/audio/transcriptions"
+	GROQ_TTS_URL           = "https://api.groq.com/openai/v1/audio/speech"
 	GROQ_DEFAULT_STT_MODEL = "whisper-large-v3-turbo"
 	GROQ_DEFAULT_TTS_MODEL = "playai-tts"
 	GROQ_DEFAULT_VOICE     = "Arista-PlayAI"

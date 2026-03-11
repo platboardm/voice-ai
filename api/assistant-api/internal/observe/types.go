@@ -22,7 +22,7 @@ type SessionMeta struct {
 // EventRecord represents a named event fired during a voice session.
 // MessageID identifies the interaction turn (context ID) in which the event occurred.
 type EventRecord struct {
-	MessageID string            // turn/interaction context ID
+	MessageID string // turn/interaction context ID
 	Name      string
 	Data      map[string]string
 	Time      time.Time

@@ -23,11 +23,11 @@ import (
 )
 
 type azureBlobStorage struct {
-	config      configs.AssetStoreConfig
-	logger      commons.Logger
-	client      *azblob.Client
-	accountName   string                       // resolved from config or connection string
-	sharedKeyCred *azblob.SharedKeyCredential  // nil when using a connection string
+	config        configs.AssetStoreConfig
+	logger        commons.Logger
+	client        *azblob.Client
+	accountName   string                      // resolved from config or connection string
+	sharedKeyCred *azblob.SharedKeyCredential // nil when using a connection string
 }
 
 // NewAzureBlobStorage creates an Azure Blob Storage backend.

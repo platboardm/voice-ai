@@ -7,9 +7,9 @@
 package speechmatics_internal
 
 type SpeechmaticsSTTResponse struct {
-	Message  string                    `json:"message"`
-	Results  []SpeechmaticsSTTResult   `json:"results"`
-	Metadata SpeechmaticsSTTMetadata   `json:"metadata"`
+	Message  string                  `json:"message"`
+	Results  []SpeechmaticsSTTResult `json:"results"`
+	Metadata SpeechmaticsSTTMetadata `json:"metadata"`
 }
 
 type SpeechmaticsSTTResult struct {
@@ -24,7 +24,7 @@ type SpeechmaticsSTTResult struct {
 }
 
 type SpeechmaticsSTTMetadata struct {
-	StartTime float64 `json:"start_time"`
-	EndTime   float64 `json:"end_time"`
-	Transcript string `json:"transcript"`
+	StartTime  float64 `json:"start_time"`
+	EndTime    float64 `json:"end_time"`
+	Transcript string  `json:"transcript"`
 }
