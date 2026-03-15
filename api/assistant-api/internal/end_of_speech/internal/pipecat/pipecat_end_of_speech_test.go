@@ -1,0 +1,849 @@
+// Copyright (c) 2023-2025 RapidaAI
+// Author: Prashant Srivastav <prashant@rapida.ai>
+//
+// Licensed under GPL-2.0 with Rapida Additional Terms.
+// See LICENSE.md or contact sales@rapida.ai for commercial usage.
+package internal_pipecat
+
+import (
+	"context"
+	"encoding/binary"
+	"math"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
+	"github.com/rapidaai/pkg/commons"
+	"github.com/rapidaai/pkg/utils"
+)
+
+// ============================================================================
+// Test helpers
+// ============================================================================
+
+func userInput(msg string) internal_type.UserTextPacket {
+	return internal_type.UserTextPacket{Text: msg}
+}
+
+func sttInput(msg string, complete bool) internal_type.SpeechToTextPacket {
+	return internal_type.SpeechToTextPacket{Script: msg, Interim: !complete}
+}
+
+func interruptInput() internal_type.InterruptionPacket {
+	return internal_type.InterruptionPacket{Source: "vad"}
+}
+
+func audioInput(nSamples int) internal_type.UserAudioPacket {
+	pcm := make([]byte, nSamples*2)
+	for i := 0; i < nSamples; i++ {
+		// 440 Hz sine wave as PCM16
+		v := int16(16000.0 * math.Sin(2.0*math.Pi*440.0*float64(i)/16000.0))
+		binary.LittleEndian.PutUint16(pcm[i*2:], uint16(v))
+	}
+	return internal_type.UserAudioPacket{Audio: pcm}
+}
+
+func newTestOpts(m map[string]any) utils.Option {
+	return utils.Option(m)
+}
+
+// newTestEOS creates a PipecatEOS for testing without the ONNX model.
+// It uses a nil detector so inference always falls back to the fallback timeout.
+func newTestEOS(callback func(context.Context, ...internal_type.Packet) error, opts utils.Option) *PipecatEOS {
+	fallback := time.Duration(defaultPctFallbackMs) * time.Millisecond
+	if v, err := opts.GetFloat64("microphone.eos.timeout"); err == nil {
+		fallback = time.Duration(v) * time.Millisecond
+	}
+
+	eos := &PipecatEOS{
+		callback:       callback,
+		threshold:      defaultPctThreshold,
+		quickTimeout:   time.Duration(defaultPctQuickTimeout) * time.Millisecond,
+		silenceTimeout: time.Duration(defaultPctSilenceTimeout) * time.Millisecond,
+		fallbackMs:     fallback,
+		audioBuf:       make([]float32, 0, maxAudioSamples),
+		cmdCh:          make(chan command, 32),
+		stopCh:         make(chan struct{}),
+		state:          &eosState{segment: SpeechSegment{}},
+	}
+	go eos.worker()
+	return eos
+}
+
+// ============================================================================
+// MEL SPECTROGRAM TESTS
+// ============================================================================
+
+func TestHzToMel_LinearRegion(t *testing.T) {
+	assert.InDelta(t, 0.0, hzToMel(0), 1e-6)
+	assert.InDelta(t, 500.0/melFSP, hzToMel(500), 1e-6)
+	assert.InDelta(t, 1000.0/melFSP, hzToMel(1000), 1e-6)
+}
+
+func TestHzToMel_LogRegion(t *testing.T) {
+	mel4000 := hzToMel(4000)
+	assert.True(t, mel4000 > hzToMel(1000))
+	mel8000 := hzToMel(8000)
+	assert.True(t, mel8000 > mel4000)
+}
+
+func TestMelToHz_Roundtrip(t *testing.T) {
+	freqs := []float64{0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 4000, 6000, 8000}
+	for _, f := range freqs {
+		got := melToHz(hzToMel(f))
+		assert.InDelta(t, f, got, 1e-6, "roundtrip failed for %f Hz", f)
+	}
+}
+
+func TestPrepareAudio_ExactLength(t *testing.T) {
+	audio := make([]float32, whisperMaxSamples)
+	for i := range audio {
+		audio[i] = 0.5
+	}
+	result := prepareAudio(audio)
+	assert.Len(t, result, whisperMaxSamples)
+	assert.Equal(t, float32(0.5), result[0])
+}
+
+func TestPrepareAudio_Truncation(t *testing.T) {
+	audio := make([]float32, whisperMaxSamples+1000)
+	for i := range audio {
+		audio[i] = float32(i)
+	}
+	result := prepareAudio(audio)
+	assert.Len(t, result, whisperMaxSamples)
+	assert.Equal(t, float32(1000), result[0])
+	assert.Equal(t, float32(whisperMaxSamples+999), result[whisperMaxSamples-1])
+}
+
+func TestPrepareAudio_Padding(t *testing.T) {
+	audio := make([]float32, 1000)
+	for i := range audio {
+		audio[i] = 1.0
+	}
+	result := prepareAudio(audio)
+	assert.Len(t, result, whisperMaxSamples)
+	// Left side should be zeros
+	assert.Equal(t, float32(0), result[0])
+	assert.Equal(t, float32(0), result[whisperMaxSamples-1001])
+	// Right side should be the audio
+	assert.Equal(t, float32(1.0), result[whisperMaxSamples-1000])
+	assert.Equal(t, float32(1.0), result[whisperMaxSamples-1])
+}
+
+func TestNormalize_ZeroMean(t *testing.T) {
+	samples := []float32{1, 2, 3, 4, 5}
+	normalize(samples)
+
+	var sum float64
+	for _, s := range samples {
+		sum += float64(s)
+	}
+	assert.InDelta(t, 0.0, sum/float64(len(samples)), 1e-5)
+}
+
+func TestNormalize_UnitVariance(t *testing.T) {
+	samples := []float32{-2, -1, 0, 1, 2}
+	normalize(samples)
+
+	var variance float64
+	for _, s := range samples {
+		variance += float64(s) * float64(s)
+	}
+	variance /= float64(len(samples))
+	assert.InDelta(t, 1.0, variance, 0.05)
+}
+
+func TestNormalize_AllSame(t *testing.T) {
+	samples := []float32{5, 5, 5, 5}
+	normalize(samples)
+	// All same value → stddev ≈ 0 → all outputs should be ≈ 0
+	for _, s := range samples {
+		assert.InDelta(t, 0.0, s, 1e-2)
+	}
+}
+
+func TestNormalize_Empty(t *testing.T) {
+	var samples []float32
+	normalize(samples) // should not panic
+}
+
+func TestReflectPad(t *testing.T) {
+	signal := []float32{1, 2, 3, 4, 5}
+	padded := reflectPad(signal, 2)
+
+	assert.Len(t, padded, 9)
+	assert.Equal(t, float32(3), padded[0])
+	assert.Equal(t, float32(2), padded[1])
+	assert.Equal(t, float32(1), padded[2])
+	assert.Equal(t, float32(5), padded[6])
+	assert.Equal(t, float32(4), padded[7])
+	assert.Equal(t, float32(3), padded[8])
+}
+
+func TestReflectPad_SingleElement(t *testing.T) {
+	signal := []float32{42}
+	padded := reflectPad(signal, 3)
+	assert.Len(t, padded, 7)
+	// With single element, reflect is just the element itself
+	assert.Equal(t, float32(42), padded[3])
+}
+
+func TestReflectPad_ZeroPad(t *testing.T) {
+	signal := []float32{1, 2, 3}
+	padded := reflectPad(signal, 0)
+	assert.Equal(t, signal, padded)
+}
+
+// ============================================================================
+// FFT TESTS
+// ============================================================================
+
+func TestFFT_Impulse(t *testing.T) {
+	// FFT of [1, 0, 0, 0] = [1, 1, 1, 1] (flat spectrum)
+	x := []complex128{1, 0, 0, 0}
+	fft(x)
+	for i := range x {
+		assert.InDelta(t, 1.0, real(x[i]), 1e-10)
+		assert.InDelta(t, 0.0, imag(x[i]), 1e-10)
+	}
+}
+
+func TestFFT_DC(t *testing.T) {
+	// FFT of [1, 1, 1, 1] = [4, 0, 0, 0] (all energy at DC)
+	x := []complex128{1, 1, 1, 1}
+	fft(x)
+	assert.InDelta(t, 4.0, real(x[0]), 1e-10)
+	for i := 1; i < 4; i++ {
+		assert.InDelta(t, 0.0, real(x[i]), 1e-10)
+		assert.InDelta(t, 0.0, imag(x[i]), 1e-10)
+	}
+}
+
+func TestFFT_Parseval(t *testing.T) {
+	n := 512
+	x := make([]complex128, n)
+	var energyTime float64
+	for i := range x {
+		v := math.Sin(2.0 * math.Pi * float64(i) / float64(n))
+		x[i] = complex(v, 0)
+		energyTime += v * v
+	}
+
+	fft(x)
+
+	var energyFreq float64
+	for _, v := range x {
+		r := real(v)
+		im := imag(v)
+		energyFreq += r*r + im*im
+	}
+	energyFreq /= float64(n)
+
+	assert.InDelta(t, energyTime, energyFreq, 1e-6)
+}
+
+func TestFFT_Linearity(t *testing.T) {
+	// FFT(a*x + b*y) = a*FFT(x) + b*FFT(y)
+	n := 256
+	x := make([]complex128, n)
+	y := make([]complex128, n)
+	z := make([]complex128, n)
+	for i := range x {
+		x[i] = complex(math.Sin(2*math.Pi*float64(i)/float64(n)), 0)
+		y[i] = complex(math.Cos(2*math.Pi*3*float64(i)/float64(n)), 0)
+		z[i] = 2*x[i] + 3*y[i]
+	}
+
+	fft(x)
+	fft(y)
+	fft(z)
+
+	for i := range z {
+		expected := 2*x[i] + 3*y[i]
+		assert.InDelta(t, real(expected), real(z[i]), 1e-6)
+		assert.InDelta(t, imag(expected), imag(z[i]), 1e-6)
+	}
+}
+
+func TestFFT_SingleTone(t *testing.T) {
+	// A single-frequency sine should have energy at that bin
+	n := 512
+	k := 10 // frequency bin 10
+	x := make([]complex128, n)
+	for i := range x {
+		x[i] = complex(math.Sin(2.0*math.Pi*float64(k)*float64(i)/float64(n)), 0)
+	}
+
+	fft(x)
+
+	// Bin k should have the highest magnitude
+	maxMag := 0.0
+	maxBin := 0
+	for i := range x {
+		mag := math.Sqrt(real(x[i])*real(x[i]) + imag(x[i])*imag(x[i]))
+		if mag > maxMag {
+			maxMag = mag
+			maxBin = i
+		}
+	}
+	// Energy should be at bin k or n-k (negative frequency)
+	assert.True(t, maxBin == k || maxBin == n-k)
+}
+
+// ============================================================================
+// WHISPER FEATURE EXTRACTION TESTS
+// ============================================================================
+
+func TestWhisperFeatures_Init(t *testing.T) {
+	wf := newWhisperFeatures()
+
+	// Hann window: 0 at start, peaks at center
+	assert.InDelta(t, 0.0, wf.hannWindow[0], 1e-10)
+	assert.InDelta(t, 1.0, wf.hannWindow[whisperNFFT/2], 1e-3)
+	// Symmetric: hannWindow[i] ≈ hannWindow[nFFT - i]
+	for i := 1; i < whisperNFFT/2; i++ {
+		assert.InDelta(t, wf.hannWindow[i], wf.hannWindow[whisperNFFT-i], 1e-10)
+	}
+
+	// Mel filters: each filter should have a peak of 1 or less
+	for i := 0; i < whisperNMels; i++ {
+		hasNonZero := false
+		for j := 0; j < whisperNFreqBins; j++ {
+			if wf.melFilters[i][j] > 0 {
+				hasNonZero = true
+			}
+		}
+		assert.True(t, hasNonZero, "mel filter %d has no non-zero entries", i)
+	}
+}
+
+func TestWhisperFeatures_MelFilterbankCoverage(t *testing.T) {
+	wf := newWhisperFeatures()
+
+	// Every freq bin (except maybe the very edges) should be covered by at least one mel filter
+	covered := make([]bool, whisperNFreqBins)
+	for i := 0; i < whisperNMels; i++ {
+		for j := 0; j < whisperNFreqBins; j++ {
+			if wf.melFilters[i][j] > 0 {
+				covered[j] = true
+			}
+		}
+	}
+	// Count uncovered bins (may be at the very edges)
+	uncovered := 0
+	for _, c := range covered {
+		if !c {
+			uncovered++
+		}
+	}
+	// At most a few edge bins should be uncovered
+	assert.Less(t, uncovered, 5, "too many uncovered frequency bins")
+}
+
+func TestWhisperFeatures_OutputShape(t *testing.T) {
+	wf := newWhisperFeatures()
+
+	testCases := []struct {
+		name     string
+		nSamples int
+	}{
+		{"1_second", 16000},
+		{"500ms", 8000},
+		{"8_seconds", 128000},
+		{"10_seconds", 160000},
+		{"100ms", 1600},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			audio := make([]float32, tc.nSamples)
+			features := wf.Extract(audio)
+			require.Len(t, features, whisperNMels*whisperMaxFrames)
+		})
+	}
+}
+
+func TestWhisperFeatures_DifferentAudio(t *testing.T) {
+	wf := newWhisperFeatures()
+
+	silence := make([]float32, 16000)
+	silenceFeats := wf.Extract(silence)
+
+	sine := make([]float32, 16000)
+	for i := range sine {
+		sine[i] = float32(math.Sin(2.0 * math.Pi * 440.0 * float64(i) / 16000.0))
+	}
+	sineFeats := wf.Extract(sine)
+
+	different := false
+	for i := range silenceFeats {
+		if silenceFeats[i] != sineFeats[i] {
+			different = true
+			break
+		}
+	}
+	assert.True(t, different)
+}
+
+func TestWhisperFeatures_Deterministic(t *testing.T) {
+	wf := newWhisperFeatures()
+
+	audio := make([]float32, 16000)
+	for i := range audio {
+		audio[i] = float32(math.Sin(2.0 * math.Pi * 440.0 * float64(i) / 16000.0))
+	}
+
+	f1 := wf.Extract(audio)
+	f2 := wf.Extract(audio)
+
+	for i := range f1 {
+		assert.Equal(t, f1[i], f2[i], "features not deterministic at index %d", i)
+	}
+}
+
+func TestWhisperFeatures_OutputRange(t *testing.T) {
+	wf := newWhisperFeatures()
+
+	audio := make([]float32, 32000) // 2 seconds
+	for i := range audio {
+		audio[i] = float32(math.Sin(2.0 * math.Pi * 1000.0 * float64(i) / 16000.0))
+	}
+	features := wf.Extract(audio)
+
+	// After normalization: (log_mel + 4.0) / 4.0, typical range [-1, 1+]
+	for _, v := range features {
+		assert.False(t, math.IsNaN(float64(v)), "NaN in features")
+		assert.False(t, math.IsInf(float64(v), 0), "Inf in features")
+	}
+}
+
+func TestWhisperFeatures_FrequencySelectivity(t *testing.T) {
+	wf := newWhisperFeatures()
+
+	// Low frequency tone (200 Hz) should excite lower mel bins
+	low := make([]float32, 128000)
+	for i := range low {
+		low[i] = float32(math.Sin(2.0 * math.Pi * 200.0 * float64(i) / 16000.0))
+	}
+	lowFeats := wf.Extract(low)
+
+	// High frequency tone (4000 Hz) should excite higher mel bins
+	high := make([]float32, 128000)
+	for i := range high {
+		high[i] = float32(math.Sin(2.0 * math.Pi * 4000.0 * float64(i) / 16000.0))
+	}
+	highFeats := wf.Extract(high)
+
+	// Sum energy in low mel bins (0-19) vs high mel bins (60-79)
+	var lowLowEnergy, lowHighEnergy float64
+	var highLowEnergy, highHighEnergy float64
+	for m := 0; m < 20; m++ {
+		for f := 0; f < whisperMaxFrames; f++ {
+			lowLowEnergy += float64(lowFeats[m*whisperMaxFrames+f])
+			highLowEnergy += float64(highFeats[m*whisperMaxFrames+f])
+		}
+	}
+	for m := 60; m < 80; m++ {
+		for f := 0; f < whisperMaxFrames; f++ {
+			lowHighEnergy += float64(lowFeats[m*whisperMaxFrames+f])
+			highHighEnergy += float64(highFeats[m*whisperMaxFrames+f])
+		}
+	}
+
+	// Low tone should have relatively more energy in low mel bins
+	assert.Greater(t, lowLowEnergy, lowHighEnergy, "200Hz tone should excite lower mel bins more")
+	// High tone should have relatively more energy in high mel bins
+	assert.Greater(t, highHighEnergy, highLowEnergy, "4000Hz tone should excite higher mel bins more")
+}
+
+// ============================================================================
+// AUDIO BUFFER TESTS
+// ============================================================================
+
+func TestAppendAudio_PCM16Conversion(t *testing.T) {
+	eos := newTestEOS(func(context.Context, ...internal_type.Packet) error { return nil },
+		newTestOpts(map[string]any{}))
+	defer eos.Close()
+
+	// 100 samples of int16 value 1000
+	pcm := make([]byte, 200)
+	for i := 0; i < 100; i++ {
+		binary.LittleEndian.PutUint16(pcm[i*2:], uint16(1000))
+	}
+	eos.appendAudio(pcm)
+
+	assert.Len(t, eos.audioBuf, 100)
+	assert.InDelta(t, 1000.0/32768.0, eos.audioBuf[0], 1e-5)
+}
+
+func TestAppendAudio_NegativeValues(t *testing.T) {
+	eos := newTestEOS(func(context.Context, ...internal_type.Packet) error { return nil },
+		newTestOpts(map[string]any{}))
+	defer eos.Close()
+
+	pcm := make([]byte, 2)
+	v := int16(-16384)
+	binary.LittleEndian.PutUint16(pcm, uint16(v))
+	eos.appendAudio(pcm)
+
+	assert.Len(t, eos.audioBuf, 1)
+	assert.InDelta(t, -16384.0/32768.0, eos.audioBuf[0], 1e-5)
+}
+
+func TestAppendAudio_RollingBuffer(t *testing.T) {
+	eos := newTestEOS(func(context.Context, ...internal_type.Packet) error { return nil },
+		newTestOpts(map[string]any{}))
+	defer eos.Close()
+
+	// Fill buffer to near capacity
+	eos.audioBuf = make([]float32, maxAudioSamples-10)
+
+	// Append 100 more samples — should evict oldest
+	pcm := make([]byte, 200)
+	eos.appendAudio(pcm)
+
+	assert.Len(t, eos.audioBuf, maxAudioSamples)
+}
+
+func TestAppendAudio_EmptyInput(t *testing.T) {
+	eos := newTestEOS(func(context.Context, ...internal_type.Packet) error { return nil },
+		newTestOpts(map[string]any{}))
+	defer eos.Close()
+
+	eos.appendAudio(nil)
+	assert.Len(t, eos.audioBuf, 0)
+
+	eos.appendAudio([]byte{0}) // single byte, can't form a sample
+	assert.Len(t, eos.audioBuf, 0)
+}
+
+func TestAppendAudio_ConcurrentSafety(t *testing.T) {
+	eos := newTestEOS(func(context.Context, ...internal_type.Packet) error { return nil },
+		newTestOpts(map[string]any{}))
+	defer eos.Close()
+
+	var wg sync.WaitGroup
+	for g := 0; g < 10; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pcm := make([]byte, 200)
+			for i := 0; i < 100; i++ {
+				eos.appendAudio(pcm)
+			}
+		}()
+	}
+	wg.Wait()
+
+	assert.LessOrEqual(t, len(eos.audioBuf), maxAudioSamples)
+}
+
+// ============================================================================
+// EOS INTEGRATION TESTS (without ONNX model — fallback timeout path)
+// ============================================================================
+
+func TestEOS_UserTextImmediateFire(t *testing.T) {
+	called := make(chan internal_type.EndOfSpeechPacket, 1)
+	callback := func(ctx context.Context, res ...internal_type.Packet) error {
+		for _, r := range res {
+			if p, ok := r.(internal_type.EndOfSpeechPacket); ok {
+				select {
+				case called <- p:
+				default:
+				}
+			}
+		}
+		return nil
+	}
+
+	eos := newTestEOS(callback, newTestOpts(map[string]any{}))
+	defer eos.Close()
+
+	err := eos.Analyze(context.Background(), userInput("hello"))
+	require.NoError(t, err)
+
+	select {
+	case p := <-called:
+		assert.Equal(t, "hello", p.Speech)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for callback")
+	}
+}
+
+func TestEOS_STTAccumulatesText(t *testing.T) {
+	called := make(chan internal_type.EndOfSpeechPacket, 1)
+	callback := func(ctx context.Context, res ...internal_type.Packet) error {
+		for _, r := range res {
+			if p, ok := r.(internal_type.EndOfSpeechPacket); ok {
+				select {
+				case called <- p:
+				default:
+				}
+			}
+		}
+		return nil
+	}
+
+	eos := newTestEOS(callback, newTestOpts(map[string]any{"microphone.eos.timeout": 100.0}))
+	defer eos.Close()
+
+	ctx := context.Background()
+	// First final STT
+	eos.Analyze(ctx, sttInput("hello", true))
+	// Second final STT — text should accumulate
+	eos.Analyze(ctx, sttInput("world", true))
+
+	select {
+	case p := <-called:
+		assert.Contains(t, p.Speech, "hello")
+		assert.Contains(t, p.Speech, "world")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for callback")
+	}
+}
+
+func TestEOS_AudioPacketAccumulates(t *testing.T) {
+	eos := newTestEOS(func(context.Context, ...internal_type.Packet) error { return nil },
+		newTestOpts(map[string]any{}))
+	defer eos.Close()
+
+	ctx := context.Background()
+	err := eos.Analyze(ctx, audioInput(1600))
+	require.NoError(t, err)
+
+	assert.Len(t, eos.audioBuf, 1600)
+
+	// Analyze more audio
+	err = eos.Analyze(ctx, audioInput(3200))
+	require.NoError(t, err)
+
+	assert.Len(t, eos.audioBuf, 4800)
+}
+
+func TestEOS_EmptyUserTextIgnored(t *testing.T) {
+	callCount := int64(0)
+	callback := func(ctx context.Context, res ...internal_type.Packet) error {
+		for _, r := range res {
+			if _, ok := r.(internal_type.EndOfSpeechPacket); ok {
+				atomic.AddInt64(&callCount, 1)
+			}
+		}
+		return nil
+	}
+
+	eos := newTestEOS(callback, newTestOpts(map[string]any{}))
+	defer eos.Close()
+
+	eos.Analyze(context.Background(), userInput(""))
+	time.Sleep(200 * time.Millisecond)
+	assert.Equal(t, int64(0), atomic.LoadInt64(&callCount))
+}
+
+func TestEOS_InterruptionWithNoTextIgnored(t *testing.T) {
+	callCount := int64(0)
+	callback := func(ctx context.Context, res ...internal_type.Packet) error {
+		for _, r := range res {
+			if _, ok := r.(internal_type.EndOfSpeechPacket); ok {
+				atomic.AddInt64(&callCount, 1)
+			}
+		}
+		return nil
+	}
+
+	eos := newTestEOS(callback, newTestOpts(map[string]any{}))
+	defer eos.Close()
+
+	eos.Analyze(context.Background(), interruptInput())
+	time.Sleep(200 * time.Millisecond)
+	assert.Equal(t, int64(0), atomic.LoadInt64(&callCount))
+}
+
+func TestEOS_ResetClearsAudioBuffer(t *testing.T) {
+	called := make(chan struct{}, 1)
+	callback := func(ctx context.Context, res ...internal_type.Packet) error {
+		for _, r := range res {
+			if _, ok := r.(internal_type.EndOfSpeechPacket); ok {
+				select {
+				case called <- struct{}{}:
+				default:
+				}
+			}
+		}
+		return nil
+	}
+
+	eos := newTestEOS(callback, newTestOpts(map[string]any{}))
+	defer eos.Close()
+
+	ctx := context.Background()
+	// Accumulate audio
+	eos.Analyze(ctx, audioInput(16000))
+	assert.Greater(t, len(eos.audioBuf), 0)
+
+	// Fire EOS (which triggers reset)
+	eos.Analyze(ctx, userInput("test"))
+
+	select {
+	case <-called:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout")
+	}
+
+	// After reset, audio buffer should be cleared
+	time.Sleep(50 * time.Millisecond)
+	eos.mu.RLock()
+	bufLen := len(eos.audioBuf)
+	eos.mu.RUnlock()
+	assert.Equal(t, 0, bufLen)
+}
+
+func TestEOS_Name(t *testing.T) {
+	eos := newTestEOS(func(context.Context, ...internal_type.Packet) error { return nil },
+		newTestOpts(map[string]any{}))
+	defer eos.Close()
+	assert.Equal(t, "pipecatSmartTurnEndOfSpeech", eos.Name())
+}
+
+func TestEOS_CloseStopsWorker(t *testing.T) {
+	eos := newTestEOS(func(context.Context, ...internal_type.Packet) error { return nil },
+		newTestOpts(map[string]any{}))
+	err := eos.Close()
+	assert.NoError(t, err)
+}
+
+func TestEOS_ConcurrentAnalyze(t *testing.T) {
+	callback := func(context.Context, ...internal_type.Packet) error { return nil }
+	eos := newTestEOS(callback, newTestOpts(map[string]any{"microphone.eos.timeout": 100.0}))
+	defer eos.Close()
+
+	var wg sync.WaitGroup
+	ctx := context.Background()
+	for g := 0; g < 10; g++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < 50; i++ {
+				switch i % 4 {
+				case 0:
+					eos.Analyze(ctx, audioInput(160))
+				case 1:
+					eos.Analyze(ctx, sttInput("text", true))
+				case 2:
+					eos.Analyze(ctx, interruptInput())
+				case 3:
+					eos.Analyze(ctx, userInput("msg"))
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+}
+
+func TestEOS_ContextCancelStillFires(t *testing.T) {
+	called := make(chan internal_type.EndOfSpeechPacket, 1)
+	callback := func(ctx context.Context, res ...internal_type.Packet) error {
+		for _, r := range res {
+			if p, ok := r.(internal_type.EndOfSpeechPacket); ok {
+				select {
+				case called <- p:
+				default:
+				}
+			}
+		}
+		return nil
+	}
+
+	eos := newTestEOS(callback, newTestOpts(map[string]any{"microphone.eos.timeout": 100.0}))
+	defer eos.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	eos.Analyze(ctx, sttInput("hello", true))
+	cancel() // cancel before timer fires
+
+	select {
+	case p := <-called:
+		assert.Equal(t, "hello", p.Speech)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout: callback should fire even after context cancel")
+	}
+}
+
+func TestEOS_CallbackFiresOnlyOnce(t *testing.T) {
+	callCount := int64(0)
+	callback := func(ctx context.Context, res ...internal_type.Packet) error {
+		for _, r := range res {
+			if _, ok := r.(internal_type.EndOfSpeechPacket); ok {
+				atomic.AddInt64(&callCount, 1)
+			}
+		}
+		return nil
+	}
+
+	eos := newTestEOS(callback, newTestOpts(map[string]any{"microphone.eos.timeout": 50.0}))
+	defer eos.Close()
+
+	ctx := context.Background()
+	eos.Analyze(ctx, sttInput("hello", true))
+	// Send more inputs that should be ignored after callback fires
+	time.Sleep(20 * time.Millisecond)
+	eos.Analyze(ctx, sttInput("world", true))
+	eos.Analyze(ctx, interruptInput())
+
+	time.Sleep(300 * time.Millisecond)
+	assert.Equal(t, int64(1), atomic.LoadInt64(&callCount))
+}
+
+func TestEOS_InterimSTTExtendsTimer(t *testing.T) {
+	called := make(chan internal_type.EndOfSpeechPacket, 1)
+	callback := func(ctx context.Context, res ...internal_type.Packet) error {
+		for _, r := range res {
+			if p, ok := r.(internal_type.EndOfSpeechPacket); ok {
+				select {
+				case called <- p:
+				default:
+				}
+			}
+		}
+		return nil
+	}
+
+	eos := newTestEOS(callback, newTestOpts(map[string]any{"microphone.eos.timeout": 150.0}))
+	defer eos.Close()
+
+	ctx := context.Background()
+	// Send final STT to start text accumulation
+	eos.Analyze(ctx, sttInput("hello", true))
+
+	// Send interim STTs to extend timer
+	for i := 0; i < 3; i++ {
+		time.Sleep(80 * time.Millisecond)
+		eos.Analyze(ctx, sttInput("...", false))
+	}
+
+	// Should eventually fire
+	select {
+	case p := <-called:
+		assert.Contains(t, p.Speech, "hello")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+// ============================================================================
+// FACTORY TEST
+// ============================================================================
+
+func TestEOS_FactoryCreationFails_NoModel(t *testing.T) {
+	logger, _ := commons.NewApplicationLogger()
+	// With a bogus model path, should fail
+	_, err := NewPipecatEndOfSpeech(logger,
+		func(context.Context, ...internal_type.Packet) error { return nil },
+		utils.Option{"microphone.eos.pipecat.model_path": "/nonexistent/model.onnx"})
+	assert.Error(t, err)
+}

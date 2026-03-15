@@ -340,6 +340,18 @@ func (r *genericRequestor) GetID() string {
 	return r.contextID
 }
 
+// isAssistantActive reports whether the assistant is currently generating or
+// has recently generated a response (i.e. the LLM/TTS pipeline is active).
+// Used by handleEndOfSpeech to decide whether a confirmed user utterance
+// should trigger a full interruption cascade before starting a new turn.
+func (dm *genericRequestor) isAssistantActive() bool {
+	dm.msgMu.RLock()
+	defer dm.msgMu.RUnlock()
+	return dm.interactionState == LLMGenerating ||
+		dm.interactionState == LLMGenerated ||
+		dm.interactionState == Interrupt
+}
+
 // GetMode returns the current stream mode (text or audio).
 func (r *genericRequestor) GetMode() type_enums.MessageMode {
 	return r.msgMode

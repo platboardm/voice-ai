@@ -8,7 +8,7 @@ import { useRapidaStore } from '@/hooks';
 import { useCurrentCredential } from '@/hooks/use-credential';
 import { useGlobalNavigation } from '@/hooks/use-global-navigator';
 import { Code } from 'lucide-react';
-import { FC, useEffect, useState } from 'react';
+import { FC, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   AssistantDebuggerDeployment,
@@ -115,7 +115,12 @@ const ConfigureAssistantApiDeployment: FC<{ assistantId: string }> = ({
     ),
   });
 
+  const hasFetched = useRef(false);
+
   useEffect(() => {
+    if (hasFetched.current) return;
+    hasFetched.current = true;
+
     showLoader('block');
     const request = new GetAssistantDeploymentRequest();
     request.setAssistantid(assistantId);
@@ -161,7 +166,9 @@ const ConfigureAssistantApiDeployment: FC<{ assistantId: string }> = ({
               provider: provider.getAudioprovider() || 'cartesia',
               parameters: GetDefaultTextToSpeechIfInvalid(
                 provider.getAudioprovider() || 'cartesia',
-                GetDefaultSpeakerConfig(provider.getAudiooptionsList() || []),
+                GetDefaultSpeakerConfig(
+                  provider.getAudiooptionsList() || [],
+                ),
               ),
             });
           }
@@ -173,7 +180,7 @@ const ConfigureAssistantApiDeployment: FC<{ assistantId: string }> = ({
           err?.message || 'Failed to fetch deployment configuration',
         );
       });
-  }, [assistantId, showLoader, token, authId, projectId]);
+  }, [assistantId, token, authId, projectId]);
 
   const handleTabChange = (code: string) => {
     const clickedIndex = STEPS.findIndex(s => s.code === code);

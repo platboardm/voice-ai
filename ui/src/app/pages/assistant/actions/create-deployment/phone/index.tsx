@@ -6,7 +6,7 @@ import { ConfigureAudioInputProvider } from '@/app/pages/assistant/actions/creat
 import { ConfigureAudioOutputProvider } from '@/app/pages/assistant/actions/create-deployment/commons/configure-audio-output';
 import { useRapidaStore } from '@/hooks';
 import { Phone } from 'lucide-react';
-import { FC, useEffect, useState } from 'react';
+import { FC, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useGlobalNavigation } from '@/hooks/use-global-navigator';
 import {
@@ -30,6 +30,7 @@ import {
 } from '@/app/components/providers/speech-to-text/provider';
 import {
   GetDefaultSpeakerConfig,
+  GetDefaultTextToSpeechIfInvalid,
   ValidateTextToSpeechIfInvalid,
 } from '@/app/components/providers/text-to-speech/provider';
 import { connectionConfig } from '@/configs';
@@ -126,7 +127,12 @@ const ConfigureAssistantCallDeployment: FC<{ assistantId: string }> = ({
     parameters: GetCartesiaDefaultOptions(GetDefaultSpeakerConfig()),
   });
 
+  const hasFetched = useRef(false);
+
   useEffect(() => {
+    if (hasFetched.current) return;
+    hasFetched.current = true;
+
     showLoader('block');
     const request = new GetAssistantDeploymentRequest();
     request.setAssistantid(assistantId);
@@ -163,16 +169,26 @@ const ConfigureAssistantCallDeployment: FC<{ assistantId: string }> = ({
         if (deployment.getInputaudio()) {
           const provider = deployment.getInputaudio()!;
           setAudioInputConfig({
-            provider: provider.getAudioprovider() || '',
-            parameters: provider.getAudiooptionsList() || [],
+            provider: provider.getAudioprovider() || 'deepgram',
+            parameters: GetDefaultSpeechToTextIfInvalid(
+              provider.getAudioprovider() || 'deepgram',
+              GetDefaultMicrophoneConfig(
+                provider.getAudiooptionsList() || [],
+              ),
+            ),
           });
         }
 
         if (deployment.getOutputaudio()) {
           const provider = deployment.getOutputaudio()!;
           setAudioOutputConfig({
-            provider: provider.getAudioprovider() || '',
-            parameters: provider.getAudiooptionsList() || [],
+            provider: provider.getAudioprovider() || 'cartesia',
+            parameters: GetDefaultTextToSpeechIfInvalid(
+              provider.getAudioprovider() || 'cartesia',
+              GetDefaultSpeakerConfig(
+                provider.getAudiooptionsList() || [],
+              ),
+            ),
           });
         }
       })
@@ -183,7 +199,7 @@ const ConfigureAssistantCallDeployment: FC<{ assistantId: string }> = ({
             'Error loading phone deployment configuration. Please try again.',
         );
       });
-  }, [assistantId, showLoader, token, authId, projectId]);
+  }, [assistantId, token, authId, projectId]);
 
   const handleTabChange = (code: string) => {
     const clickedIndex = STEPS.findIndex(s => s.code === code);

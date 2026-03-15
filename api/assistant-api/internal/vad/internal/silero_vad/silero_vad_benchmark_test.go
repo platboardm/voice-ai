@@ -14,21 +14,18 @@ import (
 	"sync"
 	"testing"
 
-	internal_audio "github.com/rapidaai/api/assistant-api/internal/audio"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
-	"github.com/rapidaai/protos"
 )
 
 // Benchmark helpers
 
 func newBenchmarkVAD(b *testing.B, threshold float64) *SileroVAD {
 	logger, err := commons.NewApplicationLogger()
-	inputConfig := internal_audio.NewLinear16khzMonoAudioConfig()
 	callback := func(context.Context, ...internal_type.Packet) error { return nil }
 	opts := newTestOptions(b, threshold)
 
-	vad, err := NewSileroVAD(b.Context(), logger, inputConfig, callback, opts)
+	vad, err := NewSileroVAD(b.Context(), logger, callback, opts)
 	if err != nil {
 		if os.IsNotExist(err) || strings.Contains(err.Error(), "no such file") {
 			b.Skipf("silero model missing at %s", getModelPath())
@@ -205,14 +202,14 @@ func BenchmarkSileroVAD_Process_Threshold_0_9(b *testing.B) {
 
 func BenchmarkSileroVAD_Process_Parallel_2Streams(b *testing.B) {
 	logger, _ := commons.NewApplicationLogger()
-	inputConfig := internal_audio.NewLinear16khzMonoAudioConfig()
+
 	opts := newTestOptions(b, 0.5)
 
 	// Create 2 separate VAD instances (realistic scenario)
 	vads := make([]*SileroVAD, 2)
 	for i := 0; i < 2; i++ {
 		callback := func(context.Context, ...internal_type.Packet) error { return nil }
-		vad, _ := NewSileroVAD(b.Context(), logger, inputConfig, callback, opts)
+		vad, _ := NewSileroVAD(b.Context(), logger, callback, opts)
 		vads[i] = vad.(*SileroVAD)
 		b.Cleanup(func() { vad.Close() })
 	}
@@ -236,14 +233,14 @@ func BenchmarkSileroVAD_Process_Parallel_2Streams(b *testing.B) {
 
 func BenchmarkSileroVAD_Process_Parallel_4Streams(b *testing.B) {
 	logger, _ := commons.NewApplicationLogger()
-	inputConfig := internal_audio.NewLinear16khzMonoAudioConfig()
+
 	opts := newTestOptions(b, 0.5)
 
 	// Create 4 separate VAD instances
 	vads := make([]*SileroVAD, 4)
 	for i := 0; i < 4; i++ {
 		callback := func(context.Context, ...internal_type.Packet) error { return nil }
-		vad, _ := NewSileroVAD(b.Context(), logger, inputConfig, callback, opts)
+		vad, _ := NewSileroVAD(b.Context(), logger, callback, opts)
 		vads[i] = vad.(*SileroVAD)
 		b.Cleanup(func() { vad.Close() })
 	}
@@ -267,14 +264,14 @@ func BenchmarkSileroVAD_Process_Parallel_4Streams(b *testing.B) {
 
 func BenchmarkSileroVAD_Process_Parallel_8Streams(b *testing.B) {
 	logger, _ := commons.NewApplicationLogger()
-	inputConfig := internal_audio.NewLinear16khzMonoAudioConfig()
+
 	opts := newTestOptions(b, 0.5)
 
 	// Create 8 separate VAD instances
 	vads := make([]*SileroVAD, 8)
 	for i := 0; i < 8; i++ {
 		callback := func(context.Context, ...internal_type.Packet) error { return nil }
-		vad, _ := NewSileroVAD(b.Context(), logger, inputConfig, callback, opts)
+		vad, _ := NewSileroVAD(b.Context(), logger, callback, opts)
 		vads[i] = vad.(*SileroVAD)
 		b.Cleanup(func() { vad.Close() })
 	}
@@ -337,74 +334,6 @@ func BenchmarkSileroVAD_Process_SequentialStream_100Chunks(b *testing.B) {
 	}
 }
 
-// Different sample rates (with resampling)
-
-func BenchmarkSileroVAD_Process_Resample_8kHz(b *testing.B) {
-	logger, _ := commons.NewApplicationLogger()
-	inputConfig := &protos.AudioConfig{
-		SampleRate:  8000,
-		AudioFormat: protos.AudioConfig_LINEAR16,
-		Channels:    1,
-	}
-	callback := func(context.Context, ...internal_type.Packet) error { return nil }
-	opts := newTestOptions(b, 0.5)
-
-	vad, _ := NewSileroVAD(b.Context(), logger, inputConfig, callback, opts)
-	b.Cleanup(func() { vad.Close() })
-
-	data := generateBenchmarkSilence(4000) // 500ms at 8kHz
-
-	b.ResetTimer()
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_ = vad.Process(context.Background(), data)
-	}
-}
-
-func BenchmarkSileroVAD_Process_Resample_24kHz(b *testing.B) {
-	logger, _ := commons.NewApplicationLogger()
-	inputConfig := &protos.AudioConfig{
-		SampleRate:  24000,
-		AudioFormat: protos.AudioConfig_LINEAR16,
-		Channels:    1,
-	}
-	callback := func(context.Context, ...internal_type.Packet) error { return nil }
-	opts := newTestOptions(b, 0.5)
-
-	vad, _ := NewSileroVAD(b.Context(), logger, inputConfig, callback, opts)
-	b.Cleanup(func() { vad.Close() })
-
-	data := generateBenchmarkSilence(12000) // 500ms at 24kHz
-
-	b.ResetTimer()
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_ = vad.Process(context.Background(), data)
-	}
-}
-
-func BenchmarkSileroVAD_Process_Resample_48kHz(b *testing.B) {
-	logger, _ := commons.NewApplicationLogger()
-	inputConfig := &protos.AudioConfig{
-		SampleRate:  48000,
-		AudioFormat: protos.AudioConfig_LINEAR16,
-		Channels:    1,
-	}
-	callback := func(context.Context, ...internal_type.Packet) error { return nil }
-	opts := newTestOptions(b, 0.5)
-
-	vad, _ := NewSileroVAD(b.Context(), logger, inputConfig, callback, opts)
-	b.Cleanup(func() { vad.Close() })
-
-	data := generateBenchmarkSilence(24000) // 500ms at 48kHz
-
-	b.ResetTimer()
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_ = vad.Process(context.Background(), data)
-	}
-}
-
 // Mixed content benchmarks
 
 func BenchmarkSileroVAD_Process_MixedContent_SpeechSilence(b *testing.B) {
@@ -442,14 +371,14 @@ func BenchmarkSileroVAD_Process_MixedContent_Alternating(b *testing.B) {
 
 func BenchmarkSileroVAD_Initialization(b *testing.B) {
 	logger, _ := commons.NewApplicationLogger()
-	inputConfig := internal_audio.NewLinear16khzMonoAudioConfig()
+
 	callback := func(context.Context, ...internal_type.Packet) error { return nil }
 	opts := newTestOptions(b, 0.5)
 
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		vad, err := NewSileroVAD(b.Context(), logger, inputConfig, callback, opts)
+		vad, err := NewSileroVAD(b.Context(), logger, callback, opts)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -487,7 +416,7 @@ func BenchmarkSileroVAD_Process_MemoryPressure_LargeChunks(b *testing.B) {
 
 func BenchmarkSileroVAD_Process_WithCallback(b *testing.B) {
 	logger, _ := commons.NewApplicationLogger()
-	inputConfig := internal_audio.NewLinear16khzMonoAudioConfig()
+
 
 	callbackCount := 0
 	callback := func(context.Context, ...internal_type.Packet) error {
@@ -496,7 +425,7 @@ func BenchmarkSileroVAD_Process_WithCallback(b *testing.B) {
 	}
 	opts := newTestOptions(b, 0.3)
 
-	vad, _ := NewSileroVAD(b.Context(), logger, inputConfig, callback, opts)
+	vad, _ := NewSileroVAD(b.Context(), logger, callback, opts)
 	b.Cleanup(func() { vad.Close() })
 
 	speech := generateBenchmarkSineWave(8000, 440, 0.8)

@@ -65,6 +65,7 @@ type modelAssistantExecutor struct {
 	history            []*protos.Message
 	stream             grpc.BidiStreamingClient[protos.ChatRequest, protos.ChatResponse]
 	mu                 sync.RWMutex
+	activeContextID    string // set by chat(), cleared on interrupt, checked by listener
 	ctx                context.Context
 	ctxCancel          context.CancelFunc
 }
@@ -170,6 +171,7 @@ func (e *modelAssistantExecutor) chat(
 		return fmt.Errorf("failed to send chat request: %w", err)
 	}
 	e.mu.Lock()
+	e.activeContextID = contextID
 	e.history = append(e.history, in)
 	e.mu.Unlock()
 	return nil
@@ -255,6 +257,15 @@ func (e *modelAssistantExecutor) streamErrorReason(err error) string {
 
 // handleResponse processes a single response from the server.
 func (e *modelAssistantExecutor) handleResponse(ctx context.Context, communication internal_type.Communication, resp *protos.ChatResponse) {
+	// Drop stale responses from a previous turn that was already interrupted.
+	// The activeContextID is cleared on interrupt and set on each new chat().
+	e.mu.RLock()
+	isStale := e.activeContextID != "" && resp.GetRequestId() != e.activeContextID
+	e.mu.RUnlock()
+	if isStale {
+		return
+	}
+
 	output := resp.GetData()
 	metrics := resp.GetMetrics()
 
@@ -383,6 +394,11 @@ func (e *modelAssistantExecutor) executeToolCalls(ctx context.Context, communica
 ) error {
 	toolExecution := e.toolExecutor.ExecuteAll(ctx, contextID, output.GetAssistant().GetToolCalls(), communication)
 	e.mu.Lock()
+	if e.activeContextID != contextID {
+		// Context was interrupted during tool execution — discard results.
+		e.mu.Unlock()
+		return nil
+	}
 	e.history = append(e.history, output, toolExecution)
 	e.mu.Unlock()
 	return e.chatWithHistory(ctx, communication, contextID)
@@ -416,6 +432,12 @@ func (e *modelAssistantExecutor) Execute(ctx context.Context, communication inte
 				Contents: []string{plt.Text},
 			}},
 		})
+		e.mu.Unlock()
+		return nil
+
+	case internal_type.InterruptionPacket:
+		e.mu.Lock()
+		e.activeContextID = ""
 		e.mu.Unlock()
 		return nil
 

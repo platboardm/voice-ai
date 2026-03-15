@@ -7,8 +7,9 @@ package internal_end_of_speech
 
 import (
 	"context"
-	"fmt"
 
+	internal_livekit "github.com/rapidaai/api/assistant-api/internal/end_of_speech/internal/livekit"
+	internal_pipecat "github.com/rapidaai/api/assistant-api/internal/end_of_speech/internal/pipecat"
 	internal_silence_based "github.com/rapidaai/api/assistant-api/internal/end_of_speech/internal/silence_based"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
@@ -18,9 +19,10 @@ import (
 type EndOfSpeechIdentifier string
 
 const (
-	SilenceBasedEndOfSpeech       EndOfSpeechIdentifier = "silence_based_eos"
-	LiveKitEndOfSpeech            EndOfSpeechIdentifier = "livekit_eos"
-	EndOfSpeechOptionsKeyProvider                       = "microphone.eos.provider"
+	SilenceBasedEndOfSpeech          EndOfSpeechIdentifier = "silence_based_eos"
+	LiveKitEndOfSpeech               EndOfSpeechIdentifier = "livekit_eos"
+	PipecatSmartTurnEndOfSpeech      EndOfSpeechIdentifier = "pipecat_smart_turn_eos"
+	EndOfSpeechOptionsKeyProvider                          = "microphone.eos.provider"
 )
 
 func GetEndOfSpeech(ctx context.Context, logger commons.Logger, onCallback func(context.Context, ...internal_type.Packet) error, opts utils.Option) (internal_type.EndOfSpeech, error) {
@@ -29,7 +31,9 @@ func GetEndOfSpeech(ctx context.Context, logger commons.Logger, onCallback func(
 	case SilenceBasedEndOfSpeech:
 		return internal_silence_based.NewSilenceBasedEndOfSpeech(logger, onCallback, opts)
 	case LiveKitEndOfSpeech:
-		return nil, fmt.Errorf("livekit end of speech is not implemented yet")
+		return internal_livekit.NewLivekitEndOfSpeech(logger, onCallback, opts)
+	case PipecatSmartTurnEndOfSpeech:
+		return internal_pipecat.NewPipecatEndOfSpeech(logger, onCallback, opts)
 	default:
 		return internal_silence_based.NewSilenceBasedEndOfSpeech(logger, onCallback, opts)
 	}

@@ -36,7 +36,11 @@ export const ConfigureAudioOutputProvider: React.FC<
       provider: providerName,
       parameters: GetDefaultTextToSpeechIfInvalid(
         providerName,
-        GetDefaultSpeakerConfig([]),
+        GetDefaultSpeakerConfig(
+          audioOutputConfig.parameters.filter(p =>
+            p.getKey().startsWith('speaker.'),
+          ),
+        ),
       ),
     });
   };

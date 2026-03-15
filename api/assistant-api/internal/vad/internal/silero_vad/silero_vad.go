@@ -7,6 +7,7 @@ package internal_silero_vad
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
@@ -15,13 +16,9 @@ import (
 	"sync"
 	"time"
 
-	internal_audio "github.com/rapidaai/api/assistant-api/internal/audio"
-	internal_audio_resampler "github.com/rapidaai/api/assistant-api/internal/audio/resampler"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
-	"github.com/rapidaai/protos"
-	"github.com/streamer45/silero-vad-go/speech"
 )
 
 // -----------------------------------------------------------------------------
@@ -48,24 +45,19 @@ const (
 // SileroVAD - Voice Activity Detection using Silero
 // -----------------------------------------------------------------------------
 
-// SileroVAD implements the Vad interface using the silero-vad-go library.
-// It provides thread-safe voice activity detection with automatic cleanup
-// on context cancellation.
+// SileroVAD implements the Vad interface using the Silero ONNX model
+// with native ONNX Runtime inference. It provides thread-safe voice
+// activity detection with automatic cleanup on context cancellation.
+//
+// Input audio is expected to be 16 kHz LINEAR16 mono (the platform's
+// internal audio format). No resampling is performed.
 type SileroVAD struct {
 	// Core dependencies
 	logger   commons.Logger
 	onPacket func(ctx context.Context, pkt ...internal_type.Packet) error
 
-	// Audio processing pipeline
-	audioSampler   internal_type.AudioResampler
-	audioConverter internal_type.AudioConverter
-
-	// Audio configuration
-	inputConfig *protos.AudioConfig // Input audio format from caller
-	vadConfig   *protos.AudioConfig // Required format for VAD (16kHz mono)
-
 	// Silero detector (CGO-backed, requires careful lifecycle management)
-	detector *speech.Detector
+	detector *Detector
 
 	// Thread-safety for CGO resource protection
 	mu           sync.RWMutex
@@ -77,12 +69,12 @@ type SileroVAD struct {
 // -----------------------------------------------------------------------------
 
 // NewSileroVAD creates a new SileroVAD instance.
+// Input audio must be 16 kHz LINEAR16 mono — the platform's internal format.
 // The VAD will automatically close when the provided context is cancelled,
 // ensuring safe cleanup of CGO resources.
 func NewSileroVAD(
 	ctx context.Context,
 	logger commons.Logger,
-	inputAudio *protos.AudioConfig,
 	onPacket func(ctx context.Context, pkt ...internal_type.Packet) error,
 	options utils.Option,
 ) (internal_type.Vad, error) {
@@ -94,22 +86,11 @@ func NewSileroVAD(
 		return nil, fmt.Errorf("failed to create silero detector: %w", err)
 	}
 
-	// Initialize audio processing pipeline
-	resampler, converter, err := createAudioPipeline(logger)
-	if err != nil {
-		detector.Destroy() // Clean up on failure
-		return nil, fmt.Errorf("failed to create audio pipeline: %w", err)
-	}
-
 	svad := &SileroVAD{
-		logger:         logger,
-		onPacket:       onPacket,
-		audioSampler:   resampler,
-		audioConverter: converter,
-		inputConfig:    inputAudio,
-		vadConfig:      internal_audio.NewLinear16khzMonoAudioConfig(),
-		detector:       detector,
-		isTerminated:   false,
+		logger:       logger,
+		onPacket:     onPacket,
+		detector:     detector,
+		isTerminated: false,
 	}
 
 	// Start lifecycle manager for automatic cleanup
@@ -140,6 +121,7 @@ func (s *SileroVAD) Name() string {
 }
 
 // Process analyzes an audio packet for voice activity.
+// The packet must contain 16 kHz LINEAR16 mono audio.
 // Returns immediately if the VAD has been terminated.
 // Thread-safe for concurrent calls.
 func (s *SileroVAD) Process(ctx context.Context, pkt internal_type.UserAudioPacket) error {
@@ -148,11 +130,8 @@ func (s *SileroVAD) Process(ctx context.Context, pkt internal_type.UserAudioPack
 		return nil
 	}
 
-	// Prepare audio samples
-	samples, err := s.prepareAudioSamples(pkt)
-	if err != nil {
-		return err
-	}
+	// Convert LINEAR16 bytes to float32 samples
+	samples := linear16ToFloat32(pkt.Audio)
 
 	// Perform detection with CGO safety
 	segments, err := s.detectSafely(samples)
@@ -193,34 +172,18 @@ func (s *SileroVAD) Close() error {
 // -----------------------------------------------------------------------------
 
 // createDetector initializes the Silero speech detector with configuration.
-func createDetector(options utils.Option) (*speech.Detector, error) {
+func createDetector(options utils.Option) (*Detector, error) {
 	modelPath := resolveModelPath()
 	threshold := resolveThreshold(options)
 
-	config := speech.DetectorConfig{
+	config := DetectorConfig{
 		ModelPath:            modelPath,
 		SampleRate:           16000, // Silero requires 16kHz
 		Threshold:            float32(threshold),
 		MinSilenceDurationMs: defaultMinSilenceDurationMs,
 		SpeechPadMs:          defaultSpeechPadMs,
-		LogLevel:             speech.LogLevelError, // Suppress ONNX Runtime warnings about unused model initializers
 	}
-	return speech.NewDetector(config)
-}
-
-// createAudioPipeline initializes the resampler and converter.
-func createAudioPipeline(logger commons.Logger) (internal_type.AudioResampler, internal_type.AudioConverter, error) {
-	resampler, err := internal_audio_resampler.GetResampler(logger)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get resampler: %w", err)
-	}
-
-	converter, err := internal_audio_resampler.GetConverter(logger)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get converter: %w", err)
-	}
-
-	return resampler, converter, nil
+	return NewDetector(config)
 }
 
 // resolveModelPath determines the ONNX model file path.
@@ -271,29 +234,23 @@ func (s *SileroVAD) isActive() bool {
 // Private Helper Methods - Audio Processing
 // -----------------------------------------------------------------------------
 
-// prepareAudioSamples resamples and converts audio to the format required by Silero.
-func (s *SileroVAD) prepareAudioSamples(pkt internal_type.UserAudioPacket) ([]float32, error) {
-	// Resample to 16kHz mono
-	resampled, err := s.audioSampler.Resample(pkt.Audio, s.inputConfig, s.vadConfig)
-	if err != nil {
-		s.logger.Debugf("Resampling failed: %+v", err)
-		return nil, fmt.Errorf("resampling failed: %w", err)
+// linear16ToFloat32 converts signed 16-bit little-endian PCM bytes to
+// float32 samples in the range [-1.0, 1.0]. This is the only conversion
+// needed since input is always 16 kHz LINEAR16 mono.
+func linear16ToFloat32(data []byte) []float32 {
+	numSamples := len(data) / 2
+	samples := make([]float32, numSamples)
+	for i := 0; i < numSamples; i++ {
+		sample := int16(binary.LittleEndian.Uint16(data[i*2 : i*2+2]))
+		samples[i] = float32(sample) / 32768.0
 	}
-
-	// Convert to float32 samples
-	samples, err := s.audioConverter.ConvertToFloat32Samples(resampled, s.vadConfig)
-	if err != nil {
-		s.logger.Debugf("Sample conversion failed: %+v", err)
-		return nil, fmt.Errorf("sample conversion failed: %w", err)
-	}
-
-	return samples, nil
+	return samples
 }
 
 // detectSafely performs voice activity detection with CGO resource protection.
-// Holds the write lock for the duration of the CGO call: speech.Detector
+// Holds the write lock for the duration of the CGO call: Detector
 // mutates internal ONNX state and is not safe for concurrent use.
-func (s *SileroVAD) detectSafely(samples []float32) ([]speech.Segment, error) {
+func (s *SileroVAD) detectSafely(samples []float32) ([]Segment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -310,7 +267,7 @@ func (s *SileroVAD) detectSafely(samples []float32) ([]speech.Segment, error) {
 }
 
 // notifyActivity calculates speech boundaries and invokes the callback.
-func (s *SileroVAD) notifyActivity(ctx context.Context, segments []speech.Segment) {
+func (s *SileroVAD) notifyActivity(ctx context.Context, segments []Segment) {
 	minStart := math.MaxFloat64
 	maxEnd := -math.MaxFloat64
 

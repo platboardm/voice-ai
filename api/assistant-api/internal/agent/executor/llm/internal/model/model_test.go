@@ -287,6 +287,7 @@ func TestHandleResponse_FinalWithToolCalls(t *testing.T) {
 	e := newTestExecutor()
 	// Set stream to nil so chatWithHistory (inside executeToolCalls) fails
 	e.stream = nil
+	e.activeContextID = "req-4" // match the response requestId so it's not dropped as stale
 	toolMsg := &protos.Message{Role: "tool"}
 	e.toolExecutor = &mockToolExecutor{
 		executeFn: func(_ context.Context, _ string, _ []*protos.ToolCall, _ internal_type.Communication) *protos.Message {
@@ -500,11 +501,21 @@ func TestExecute_UserTextPacket_SendsAndRecordsHistory(t *testing.T) {
 	assert.Equal(t, "user", snapshot[0].Role)
 }
 
+func TestExecute_InterruptionPacket(t *testing.T) {
+	e := newTestExecutor()
+	e.activeContextID = "active-ctx"
+	comm, _ := newTestComm()
+
+	err := e.Execute(context.Background(), comm, internal_type.InterruptionPacket{ContextID: "x"})
+	require.NoError(t, err)
+	assert.Equal(t, "", e.activeContextID, "activeContextID should be cleared on interrupt")
+}
+
 func TestExecute_UnsupportedPacket(t *testing.T) {
 	e := newTestExecutor()
 	comm, _ := newTestComm()
 
-	err := e.Execute(context.Background(), comm, internal_type.InterruptionPacket{ContextID: "x"})
+	err := e.Execute(context.Background(), comm, internal_type.EndOfSpeechPacket{ContextID: "x"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported packet type")
 }

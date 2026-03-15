@@ -6,7 +6,7 @@ import { ModalFitHeightBlock } from '@/app/components/blocks/modal-fit-height-bl
 import { ModalTitleBlock } from '@/app/components/blocks/modal-title-block';
 import { SectionDivider } from '@/app/components/blocks/section-divider';
 import { IBlueBGButton, ICancelButton } from '@/app/components/form/button';
-import { BarChart2, Bug, CheckCircle, ChevronRight, Code, ExternalLink, Globe, PhoneCall, Webhook } from 'lucide-react';
+import { BarChart2, Bug, ChevronRight, Code, ExternalLink, Globe, PhoneCall, Webhook } from 'lucide-react';
 import { FC } from 'react';
 import { useGlobalNavigation } from '@/hooks/use-global-navigator';
 import { Assistant } from '@rapidaai/react';
@@ -88,19 +88,14 @@ export const ConfigureAssistantNextDialog: FC<ConfigureAssistantNextDialogProps>
 
         {/* ── Header ───────────────────────────────────────────────── */}
         <ModalHeader onClose={() => setModalOpen(false)}>
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 flex items-center justify-center bg-green-50 dark:bg-green-950/30 shrink-0">
-              <CheckCircle className="w-4 h-4 text-green-600" strokeWidth={2} />
-            </div>
-            <div>
-              <ModalTitleBlock>Assistant created</ModalTitleBlock>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                <span className="font-medium text-gray-700 dark:text-gray-300">
-                  {assistant.getName()}
-                </span>{' '}
-                is ready — configure deployments and integrations below.
-              </p>
-            </div>
+          <div>
+            <ModalTitleBlock>Assistant created</ModalTitleBlock>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              <span className="font-medium text-gray-700 dark:text-gray-300">
+                {assistant.getName()}
+              </span>{' '}
+              is ready — configure deployments and integrations below.
+            </p>
           </div>
         </ModalHeader>
 

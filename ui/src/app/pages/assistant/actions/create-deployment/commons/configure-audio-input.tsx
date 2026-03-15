@@ -30,7 +30,11 @@ export const ConfigureAudioInputProvider: React.FC<
       provider: providerName,
       parameters: GetDefaultSpeechToTextIfInvalid(
         providerName,
-        GetDefaultMicrophoneConfig([]),
+        GetDefaultMicrophoneConfig(
+          audioInputConfig.parameters.filter(p =>
+            p.getKey().startsWith('microphone.'),
+          ),
+        ),
       ),
     });
   };
@@ -97,20 +101,15 @@ export const ConfigureAudioInputProvider: React.FC<
               <div className="flex flex-col gap-6 pt-6 border-t border-gray-200 dark:border-gray-800">
                 <SectionDivider label="Voice Activity Detection" />
                 <VADProvider
-                  vadProvider={getParamValue(
+                  provider={getParamValue(
                     'microphone.vad.provider',
                     'silero_vad',
                   )}
-                  onChangeVADProvider={v =>
+                  onChangeProvider={v =>
                     updateParameter('microphone.vad.provider', v)
                   }
-                  vadThreshold={getParamValue(
-                    'microphone.vad.threshold',
-                    '0.8',
-                  )}
-                  onChangeVadThreshold={timeout =>
-                    updateParameter('microphone.vad.threshold', timeout)
-                  }
+                  parameters={audioInputConfig.parameters}
+                  onChangeParameter={onChangeAudioInputParameter}
                 />
                 <SectionDivider label="Background Noise" />
                 <NoiseCancellationProvider
@@ -124,20 +123,15 @@ export const ConfigureAudioInputProvider: React.FC<
                 />
                 <SectionDivider label="End of Speech" />
                 <EndOfSpeechProvider
-                  endOfSpeechProvider={getParamValue(
+                  provider={getParamValue(
                     'microphone.eos.provider',
                     'silence_based_eos',
                   )}
-                  onChangeEndOfSpeechProvider={provider =>
+                  onChangeProvider={provider =>
                     updateParameter('microphone.eos.provider', provider)
                   }
-                  endOfSepeechTimeout={getParamValue(
-                    'microphone.eos.timeout',
-                    '1000',
-                  )}
-                  onChangeEndOfSepeechTimeout={timeout =>
-                    updateParameter('microphone.eos.timeout', timeout)
-                  }
+                  parameters={audioInputConfig.parameters}
+                  onChangeParameter={onChangeAudioInputParameter}
                 />
               </div>
             )}

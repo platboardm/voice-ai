@@ -7,7 +7,7 @@ import {
 import { useRapidaStore } from '@/hooks';
 import { useCurrentCredential } from '@/hooks/use-credential';
 import { useGlobalNavigation } from '@/hooks/use-global-navigator';
-import { FC, useEffect, useState } from 'react';
+import { FC, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   AssistantWebpluginDeployment,
@@ -121,7 +121,12 @@ const ConfigureAssistantWebDeployment: FC<{ assistantId: string }> = ({
     ),
   });
 
+  const hasFetched = useRef(false);
+
   useEffect(() => {
+    if (hasFetched.current) return;
+    hasFetched.current = true;
+
     showLoader('block');
     const req = new GetAssistantDeploymentRequest();
     req.setAssistantid(assistantId);
@@ -154,8 +159,13 @@ const ConfigureAssistantWebDeployment: FC<{ assistantId: string }> = ({
           const provider = deployment.getInputaudio()!;
           setVoiceInputEnable(true);
           setAudioInputConfig({
-            provider: provider.getAudioprovider() || '',
-            parameters: provider.getAudiooptionsList() || [],
+            provider: provider.getAudioprovider() || 'deepgram',
+            parameters: GetDefaultSpeechToTextIfInvalid(
+              provider.getAudioprovider() || 'deepgram',
+              GetDefaultMicrophoneConfig(
+                provider.getAudiooptionsList() || [],
+              ),
+            ),
           });
         }
 
@@ -163,8 +173,13 @@ const ConfigureAssistantWebDeployment: FC<{ assistantId: string }> = ({
           const provider = deployment.getOutputaudio()!;
           setVoiceOutputEnable(true);
           setAudioOutputConfig({
-            provider: provider.getAudioprovider() || '',
-            parameters: provider.getAudiooptionsList() || [],
+            provider: provider.getAudioprovider() || 'cartesia',
+            parameters: GetDefaultTextToSpeechIfInvalid(
+              provider.getAudioprovider() || 'cartesia',
+              GetDefaultSpeakerConfig(
+                provider.getAudiooptionsList() || [],
+              ),
+            ),
           });
         }
 
@@ -175,7 +190,7 @@ const ConfigureAssistantWebDeployment: FC<{ assistantId: string }> = ({
           err?.message || 'Failed to fetch deployment configuration',
         );
       });
-  }, [assistantId, showLoader, token, authId, projectId]);
+  }, [assistantId, token, authId, projectId]);
 
   const handleTabChange = (code: string) => {
     const clickedIndex = STEPS.findIndex(s => s.code === code);
@@ -211,22 +226,6 @@ const ConfigureAssistantWebDeployment: FC<{ assistantId: string }> = ({
         return;
       }
       setVoiceInputEnable(true);
-    }
-
-    if (activeTab === 'voice-output') {
-      if (!audioOutputConfig.provider) {
-        setErrorMessage('Please select a text-to-speech provider.');
-        return;
-      }
-      const err = ValidateTextToSpeechIfInvalid(
-        audioOutputConfig.provider,
-        audioOutputConfig.parameters,
-      );
-      if (err) {
-        setErrorMessage(err);
-        return;
-      }
-      setVoiceOutputEnable(true);
     }
 
     if (idx < STEPS.length - 1) {
@@ -292,7 +291,6 @@ const ConfigureAssistantWebDeployment: FC<{ assistantId: string }> = ({
         setErrorMessage(err);
         return;
       }
-      setVoiceOutputEnable(true);
     }
 
     const req = new CreateAssistantDeploymentRequest();
@@ -492,7 +490,7 @@ const ConfigureAssistantWebDeployment: FC<{ assistantId: string }> = ({
                   type="button"
                   className="w-full h-full"
                   isLoading={loading}
-                  onClick={handleDeployWebPlugin}
+                  onClick={() => handleDeployWebPlugin(true)}
                 >
                   Deploy with voice output
                 </IBlueBGArrowButton>,

@@ -8,7 +8,7 @@ import { useRapidaStore } from '@/hooks';
 import { useCurrentCredential } from '@/hooks/use-credential';
 import { useGlobalNavigation } from '@/hooks/use-global-navigator';
 import { Bug } from 'lucide-react';
-import { FC, useEffect, useState } from 'react';
+import { FC, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   AssistantDebuggerDeployment,
@@ -115,7 +115,12 @@ const ConfigureAssistantDebuggerDeployment: FC<{ assistantId: string }> = ({
 
   const { showDialog, ConfirmDialogComponent } = useConfirmDialog({});
 
+  const hasFetched = useRef(false);
+
   useEffect(() => {
+    if (hasFetched.current) return;
+    hasFetched.current = true;
+
     showLoader('block');
     const request = new GetAssistantDeploymentRequest();
     request.setAssistantid(assistantId);
@@ -149,7 +154,9 @@ const ConfigureAssistantDebuggerDeployment: FC<{ assistantId: string }> = ({
             provider: provider.getAudioprovider() || 'deepgram',
             parameters: GetDefaultSpeechToTextIfInvalid(
               provider.getAudioprovider() || 'deepgram',
-              GetDefaultMicrophoneConfig(provider.getAudiooptionsList()),
+              GetDefaultMicrophoneConfig(
+                provider.getAudiooptionsList() || [],
+              ),
             ),
           });
         }
@@ -160,7 +167,9 @@ const ConfigureAssistantDebuggerDeployment: FC<{ assistantId: string }> = ({
             provider: provider.getAudioprovider() || 'cartesia',
             parameters: GetDefaultTextToSpeechIfInvalid(
               provider.getAudioprovider() || 'cartesia',
-              GetDefaultSpeakerConfig(provider.getAudiooptionsList()),
+              GetDefaultSpeakerConfig(
+                provider.getAudiooptionsList() || [],
+              ),
             ),
           });
         }
@@ -171,7 +180,7 @@ const ConfigureAssistantDebuggerDeployment: FC<{ assistantId: string }> = ({
           'Unable to load debugger deployment configuration. Please try again.',
         );
       });
-  }, [assistantId, showLoader, token, authId, projectId]);
+  }, [assistantId, token, authId, projectId]);
 
   const handleTabChange = (code: string) => {
     const clickedIndex = STEPS.findIndex(s => s.code === code);

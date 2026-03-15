@@ -10,7 +10,14 @@
         "name": "Ten Vad",
         "code": "ten_vad",
         "featureList": [
-            "wip_vad"
+            "vad"
+        ]
+    },
+    {
+        "name": "FireRed Vad",
+        "code": "firered_vad",
+        "featureList": [
+            "vad"
         ]
     },
     {
@@ -21,10 +28,17 @@
         ]
     },
     {
-        "name": "Livekit EOU",
+        "name": "LiveKit Turn Detector",
         "code": "livekit_eos",
         "featureList": [
-            "wip_end_of_speech"
+            "end_of_speech"
+        ]
+    },
+    {
+        "name": "Pipecat Smart Turn",
+        "code": "pipecat_smart_turn_eos",
+        "featureList": [
+            "end_of_speech"
         ]
     },
     {

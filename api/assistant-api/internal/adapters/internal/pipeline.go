@@ -153,7 +153,7 @@ func (listening *genericRequestor) initializeDenoiser(ctx context.Context, optio
 
 func (listening *genericRequestor) initializeVAD(ctx context.Context, options utils.Option,
 ) error {
-	vad, err := internal_vad.GetVAD(ctx, listening.logger, internal_audio.RAPIDA_INTERNAL_AUDIO_CONFIG, listening.OnPacket, options)
+	vad, err := internal_vad.GetVAD(ctx, listening.logger, listening.OnPacket, options)
 	if err != nil {
 		listening.logger.Errorf("error wile intializing vad %+v", err)
 		return err

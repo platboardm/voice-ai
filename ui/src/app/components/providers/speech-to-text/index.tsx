@@ -84,7 +84,7 @@ export const SpeechToTextProvider: React.FC<ProviderComponentProps> = props => {
           />
         )}
         {provider && (
-          <div className="grid grid-cols-3 gap-x-6 gap-y-3">
+          <div className="grid grid-cols-3 gap-6">
             <SpeechToTextConfigComponent {...props} />
           </div>
         )}

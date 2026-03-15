@@ -1,4 +1,4 @@
-import { ICancelButton, ILinkButton } from '@/app/components/form/button';
+import { IBlueBGButton, ICancelButton } from '@/app/components/form/button';
 import { GenericModal } from '@/app/components/base/modal';
 import { ModalFooter } from '@/app/components/base/modal/modal-footer';
 import type { FC } from 'react';
@@ -6,7 +6,7 @@ import { ModalProps } from '../index';
 import { ModalFitHeightBlock } from '@/app/components/blocks/modal-fit-height-block';
 import { ModalHeader } from '@/app/components/base/modal/modal-header';
 import { ModalBody } from '@/app/components/base/modal/modal-body';
-import { CheckCircle, ExternalLink } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { ModalTitleBlock } from '@/app/components/blocks/modal-title-block';
 
 interface DebuggerDeploymentSuccessDialogProps extends ModalProps {
@@ -19,41 +19,33 @@ export const DebuggerDeploymentSuccessDialog: FC<
   return (
     <GenericModal modalOpen={modalOpen} setModalOpen={setModalOpen}>
       <ModalFitHeightBlock>
-        <ModalHeader
-          onClose={() => {
-            setModalOpen(false);
-          }}
-        ></ModalHeader>
-        <ModalBody>
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center bg-green-500/10">
-              <CheckCircle className="h-6 w-6 text-green-500" />
-            </div>
-            <div>
-              <ModalTitleBlock>Success!!</ModalTitleBlock>
-              <p className="text-sm text-muted">
-                New version of debugger deployment has been updated
-                successfully.
-              </p>
-            </div>
+        <ModalHeader onClose={() => setModalOpen(false)}>
+          <div>
+            <ModalTitleBlock>Deployment completed</ModalTitleBlock>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              Debugger deployment has been updated successfully.
+            </p>
           </div>
+        </ModalHeader>
+        <ModalBody>
+          <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+            Your debugger is ready. Use the preview to test your assistant
+            in a sandbox environment before deploying to other channels.
+          </p>
         </ModalBody>
         <ModalFooter>
-          <ICancelButton
-            onClick={() => {
-              setModalOpen(false);
-            }}
-          >
+          <ICancelButton onClick={() => setModalOpen(false)}>
             Close
           </ICancelButton>
-          <ILinkButton
-            href={`/preview/chat/${assistantId}`}
-            className="px-4 rounded-[2px] space-x-1"
+          <IBlueBGButton
             type="button"
+            onClick={() =>
+              window.open(`/preview/chat/${assistantId}`, '_blank')
+            }
           >
             <span>Preview assistant</span>
-            <ExternalLink className="w-4 h-4" strokeWidth={1.5} />
-          </ILinkButton>
+            <ExternalLink className="w-4 h-4 ml-1" strokeWidth={1.5} />
+          </IBlueBGButton>
         </ModalFooter>
       </ModalFitHeightBlock>
     </GenericModal>

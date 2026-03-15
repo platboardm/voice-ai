@@ -27,7 +27,10 @@ import { useRapidaStore } from '@/hooks';
 import { PageTitleBlock } from '@/app/components/blocks/page-title-block';
 import { PageHeaderBlock } from '@/app/components/blocks/page-header-block';
 import { PageLoader } from '@/app/components/loader/page-loader';
-import { RedNoticeBlock, YellowNoticeBlock } from '@/app/components/container/message/notice-block';
+import {
+  RedNoticeBlock,
+  YellowNoticeBlock,
+} from '@/app/components/container/message/notice-block';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -204,7 +207,8 @@ export const VoiceAgent: FC<{
   const [events, setEvents] = useState<EventEntry[]>([]);
   const [variables, setVariables] = useState<Variable[]>([]);
   const [msgTab, setMsgTab] = useState<MsgTab>('messages');
-  const [conversationError, setConversationError] = useState<ConversationError.AsObject | null>(null);
+  const [conversationError, setConversationError] =
+    useState<ConversationError.AsObject | null>(null);
   const callbackRegistered = useRef(false);
   const eventsBottomRef = useRef<HTMLDivElement>(null);
 
@@ -354,7 +358,8 @@ export const VoiceAgent: FC<{
             <RedNoticeBlock className="flex items-center justify-between gap-3">
               <Info className="shrink-0 w-4 h-4 text-red-600" />
               <div className="text-sm font-medium flex-1">
-                {conversationError.message || 'An error occurred during the conversation.'}
+                {conversationError.message ||
+                  'An error occurred during the conversation.'}
               </div>
               <button
                 type="button"

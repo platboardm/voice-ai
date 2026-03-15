@@ -1,0 +1,3 @@
+# LiveKit turn detector model files (downloaded at build time)
+*.onnx
+tokenizer.json

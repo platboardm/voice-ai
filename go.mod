@@ -46,7 +46,6 @@ require (
 	github.com/sendgrid/sendgrid-go v3.16.1+incompatible
 	github.com/soheilhy/cmux v0.1.5
 	github.com/spf13/viper v1.13.0
-	github.com/streamer45/silero-vad-go v0.2.1
 	github.com/stretchr/testify v1.11.1
 	github.com/tphakala/go-audio-resampler v1.1.0
 	github.com/twilio/twilio-go v1.28.5
@@ -67,6 +66,7 @@ require (
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
+	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/postgres v1.5.4
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.30.0
@@ -222,7 +222,6 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260203192932-546029d2fa20 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/klog/v2 v2.110.1 // indirect
 	nhooyr.io/websocket v1.8.6 // indirect
 )
