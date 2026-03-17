@@ -86,7 +86,7 @@ services:
       context: .
       dockerfile: docker/ui/Dockerfile
       args:
-        EDITION: enterprise
+        EDITION: local-knowledge
     depends_on:
       - document-api
 

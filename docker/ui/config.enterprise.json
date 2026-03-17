@@ -5,7 +5,7 @@
         "endpoint": "https://api.rapida.DOMAIN_PLACEHOLDER",
         "media": "https://websocket.rapida.DOMAIN_PLACEHOLDER",
         "socket": "socket.rapida.DOMAIN_PLACEHOLDER:4573",
-        "sip": "sip.rapida.DOMAIN_PLACEHOLDER:5090"
+        "sip": "sip.rapida.DOMAIN_PLACEHOLDER:5060"
     },
     "workspace": {
         "domain": "DOMAIN_PLACEHOLDER",
