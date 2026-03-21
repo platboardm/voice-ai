@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { SpeechToTextProvider } from '@/app/components/providers/speech-to-text';
 import { NoiseCancellationProvider } from '@/app/components/providers/noise-removal';
+import { GetDefaultNoiseCancellationConfig } from '@/app/components/providers/noise-removal/provider';
 import { EndOfSpeechProvider } from '@/app/components/providers/end-of-speech';
 import { Metadata } from '@rapidaai/react';
 import {
@@ -54,28 +55,6 @@ export const ConfigureAudioInputProvider: React.FC<
     [JSON.stringify(audioInputConfig.parameters)],
   );
 
-  const updateParameter = useCallback(
-    (key: string, value: string) => {
-      const updatedParams = (audioInputConfig.parameters || []).map(param => {
-        if (param.getKey() === key) {
-          const updatedParam = new Metadata();
-          updatedParam.setKey(key);
-          updatedParam.setValue(value);
-          return updatedParam;
-        }
-        return param;
-      });
-      if (!updatedParams.some(param => param.getKey() === key)) {
-        const newParam = new Metadata();
-        newParam.setKey(key);
-        newParam.setValue(value);
-        updatedParams.push(newParam);
-      }
-      onChangeAudioInputParameter(updatedParams);
-    },
-    [audioInputConfig.parameters],
-  );
-
   return (
     <div className="border-b border-gray-200 dark:border-gray-800">
       <div className="flex flex-col gap-6 max-w-4xl  px-6 py-8">
@@ -125,7 +104,12 @@ export const ConfigureAudioInputProvider: React.FC<
                     'rn_noise',
                   )}
                   onChangeNoiseCancellationProvider={v =>
-                    updateParameter('microphone.denoising.provider', v)
+                    onChangeAudioInputParameter(
+                      GetDefaultNoiseCancellationConfig(
+                        v,
+                        audioInputConfig.parameters,
+                      ),
+                    )
                   }
                 />
                 <SectionDivider label="End of Speech" />

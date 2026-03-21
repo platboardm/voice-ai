@@ -50,32 +50,45 @@ export interface ProviderConfig {
   stt?: CategoryConfig;
   tts?: CategoryConfig;
   text?: CategoryConfig;
+  vad?: CategoryConfig;
+  eos?: CategoryConfig;
+  noise?: CategoryConfig;
 }
 
 const configCache: Record<string, ProviderConfig | null> = {};
 const dataCache: Record<string, any[]> = {};
+const PROVIDER_PATH_ALIASES: Record<string, string> = {
+  sarvamai: 'sarvam',
+  'google-speech-service': 'google',
+};
+
+function resolveProviderPath(provider: string): string {
+  return PROVIDER_PATH_ALIASES[provider] ?? provider;
+}
 
 export function loadProviderConfig(provider: string): ProviderConfig | null {
-  if (provider in configCache) {
-    return configCache[provider];
+  const resolvedProvider = resolveProviderPath(provider);
+  if (resolvedProvider in configCache) {
+    return configCache[resolvedProvider];
   }
   try {
-    const config = require(`./${provider}/config.json`) as ProviderConfig;
-    configCache[provider] = config;
+    const config = require(`./${resolvedProvider}/config.json`) as ProviderConfig;
+    configCache[resolvedProvider] = config;
     return config;
   } catch {
-    configCache[provider] = null;
+    configCache[resolvedProvider] = null;
     return null;
   }
 }
 
 export function loadProviderData(provider: string, filename: string): any[] {
-  const cacheKey = `${provider}/${filename}`;
+  const resolvedProvider = resolveProviderPath(provider);
+  const cacheKey = `${resolvedProvider}/${filename}`;
   if (cacheKey in dataCache) {
     return dataCache[cacheKey];
   }
   try {
-    const data = require(`./${provider}/${filename}`);
+    const data = require(`./${resolvedProvider}/${filename}`);
     dataCache[cacheKey] = data;
     return data;
   } catch {

@@ -7,17 +7,33 @@ import {
   loadProviderData,
 } from './config-loader';
 
+export type ProviderConfigCategory =
+  | 'stt'
+  | 'tts'
+  | 'text'
+  | 'vad'
+  | 'eos'
+  | 'noise';
+
+interface GetDefaultsFromConfigOptions {
+  includeCredential?: boolean;
+  replacePrefix?: string;
+}
+
 export function getDefaultsFromConfig(
   config: ProviderConfig,
-  category: 'stt' | 'tts' | 'text',
+  category: ProviderConfigCategory,
   currentMetadata: Metadata[],
   provider: string,
+  options: GetDefaultsFromConfigOptions = {},
 ): Metadata[] {
   const catConfig = config[category];
   if (!catConfig) return currentMetadata;
 
   const mtds: Metadata[] = [];
-  const keysToKeep: string[] = ['rapida.credential_id'];
+  const includeCredential = options.includeCredential !== false;
+  const replacePrefix = options.replacePrefix;
+  const keysToKeep: string[] = includeCredential ? ['rapida.credential_id'] : [];
 
   const addMetadata = (
     key: string,
@@ -28,7 +44,9 @@ export function getDefaultsFromConfig(
     if (metadata) mtds.push(metadata);
   };
 
-  addMetadata('rapida.credential_id');
+  if (includeCredential) {
+    addMetadata('rapida.credential_id');
+  }
 
   for (const param of catConfig.parameters) {
     keysToKeep.push(param.key);
@@ -53,17 +71,28 @@ export function getDefaultsFromConfig(
   }
 
   const preservePrefix = catConfig.preservePrefix;
+  const preservedMetadata = replacePrefix
+    ? currentMetadata.filter(m => !m.getKey().startsWith(replacePrefix))
+    : currentMetadata.filter(
+        m => preservePrefix && m.getKey().startsWith(preservePrefix),
+      );
+
+  if (replacePrefix) {
+    return [
+      ...preservedMetadata,
+      ...mtds.filter(m => keysToKeep.includes(m.getKey())),
+    ];
+  }
+
   return [
     ...mtds.filter(m => keysToKeep.includes(m.getKey())),
-    ...currentMetadata.filter(
-      m => preservePrefix && m.getKey().startsWith(preservePrefix),
-    ),
+    ...preservedMetadata,
   ];
 }
 
 export function validateFromConfig(
   config: ProviderConfig,
-  category: 'stt' | 'tts' | 'text',
+  category: ProviderConfigCategory,
   provider: string,
   options: Metadata[],
 ): string | undefined {

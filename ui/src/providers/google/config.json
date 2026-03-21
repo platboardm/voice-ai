@@ -3,24 +3,22 @@
     "preservePrefix": "microphone.",
     "parameters": [
       {
+        "key": "listen.region",
+        "label": "Region",
+        "type": "input",
+        "required": false
+      },
+      {
         "key": "listen.model",
         "label": "Model",
-        "type": "dropdown",
-        "required": true,
-        "default": "slam-1",
-        "data": "speech-to-text-models.json",
-        "valueField": "id",
-        "errorMessage": "Please provide valid model for speech to text."
+        "type": "input",
+        "required": false
       },
       {
         "key": "listen.language",
         "label": "Language",
-        "type": "dropdown",
-        "required": true,
-        "default": "en",
-        "data": "languages.json",
-        "valueField": "code",
-        "errorMessage": "Please provide valid language for speech to text."
+        "type": "input",
+        "required": false
       },
       {
         "key": "listen.threshold",

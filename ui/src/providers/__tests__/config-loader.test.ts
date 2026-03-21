@@ -44,6 +44,18 @@ describe('loadProviderConfig', () => {
     expect(config?.stt?.preservePrefix).toBe('microphone.');
     expect(config?.tts?.preservePrefix).toBe('speaker.');
   });
+
+  it('supports provider code aliases when loading config', () => {
+    const config = loadProviderConfig('sarvamai');
+    expect(config).not.toBeNull();
+    expect(config?.stt).toBeDefined();
+  });
+
+  it('supports google-speech-service alias when loading config', () => {
+    const config = loadProviderConfig('google-speech-service');
+    expect(config).not.toBeNull();
+    expect(config?.stt).toBeDefined();
+  });
 });
 
 describe('loadProviderData', () => {
@@ -70,5 +82,19 @@ describe('loadProviderData', () => {
       expect(data[0]).toHaveProperty('voice_id');
       expect(data[0]).toHaveProperty('name');
     }
+  });
+
+  it('supports provider code aliases when loading data', () => {
+    const data = loadProviderData('sarvamai', 'speech-to-text-models.json');
+    expect(data).toBeInstanceOf(Array);
+    expect(data.length).toBeGreaterThan(0);
+    expect(data[0]).toHaveProperty('model_id');
+  });
+
+  it('supports google-speech-service alias when loading data', () => {
+    const data = loadProviderData('google-speech-service', 'speech-to-text-language.json');
+    expect(data).toBeInstanceOf(Array);
+    expect(data.length).toBeGreaterThan(0);
+    expect(data[0]).toHaveProperty('code');
   });
 });

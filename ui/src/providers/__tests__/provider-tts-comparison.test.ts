@@ -155,8 +155,8 @@ describe('AWS TTS — config vs original', () => {
   it('produces defaults with expected keys', () => {
     const result = getDefaultsFromConfig(config, 'tts', [], 'aws');
     const keys = result.map(m => m.getKey()).sort();
-    // AWS TTS: model, voice.id, language — none have defaults in original
-    expect(keys).toEqual(expect.arrayContaining([]));
+    // AWS TTS has no defaults in legacy path either
+    expect(keys).toEqual([]);
   });
 
   it('validates: valid options returns undefined', () => {

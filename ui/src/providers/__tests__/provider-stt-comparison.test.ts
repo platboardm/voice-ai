@@ -255,15 +255,34 @@ describe('Azure Speech Service STT — config vs original', () => {
 
   it('produces the same default keys and values', () => {
     const result = getDefaultsFromConfig(config, 'stt', [], 'azure-speech-service');
-    expect(findMeta(result, 'listen.language')).toBe('en');
+    expect(findMeta(result, 'listen.language')).toBeUndefined();
   });
 
   it('validates: valid options returns undefined', () => {
     const opts = [
       cred(),
-      createMetadata('listen.language', 'en'),
+      createMetadata('listen.language', 'en-US'),
     ];
     expect(validateFromConfig(config, 'stt', 'azure-speech-service', opts)).toBeUndefined();
+  });
+});
+
+describe('Google Speech Service STT — config vs original', () => {
+  const config = loadProviderConfig('google-speech-service')!;
+
+  it('produces the same default keys and values', () => {
+    const result = getDefaultsFromConfig(config, 'stt', [], 'google-speech-service');
+    expect(findMeta(result, 'listen.threshold')).toBe('0.5');
+    expect(findMeta(result, 'listen.region')).toBeUndefined();
+    expect(findMeta(result, 'listen.model')).toBeUndefined();
+    expect(findMeta(result, 'listen.language')).toBeUndefined();
+  });
+
+  it('validates: valid options returns undefined', () => {
+    const opts = [
+      cred(),
+    ];
+    expect(validateFromConfig(config, 'stt', 'google-speech-service', opts)).toBeUndefined();
   });
 });
 
@@ -294,6 +313,25 @@ describe('Sarvam STT — config vs original', () => {
     expect(validateFromConfig(config, 'stt', 'sarvam', opts)).toBe(
       'Please provide valid sarvam model for speech to text.',
     );
+  });
+});
+
+describe('Sarvamai STT alias — config resolution', () => {
+  const config = loadProviderConfig('sarvamai')!;
+
+  it('loads aliased config and produces defaults', () => {
+    const result = getDefaultsFromConfig(config, 'stt', [], 'sarvamai');
+    expect(findMeta(result, 'listen.model')).toBe('saarika:v2.5');
+    expect(findMeta(result, 'listen.language')).toBe('en-IN');
+  });
+
+  it('validates using aliased data files', () => {
+    const opts = [
+      cred(),
+      createMetadata('listen.model', 'saarika:v2.5'),
+      createMetadata('listen.language', 'en-IN'),
+    ];
+    expect(validateFromConfig(config, 'stt', 'sarvamai', opts)).toBeUndefined();
   });
 });
 

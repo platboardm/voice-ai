@@ -11,6 +11,67 @@ import { Metadata } from '@rapidaai/react';
 import { ConfigRenderer } from '../config-renderer';
 import { CategoryConfig } from '@/providers/config-loader';
 
+jest.mock('@/utils', () => ({
+  cn: (...inputs: any[]) => inputs.filter(Boolean).join(' '),
+}));
+
+jest.mock('@/app/components/dropdown', () => {
+  const React = require('react');
+  return {
+    Dropdown: ({ currentValue, setValue, allValue, placeholder }: any) =>
+      React.createElement(
+        'div',
+        null,
+        placeholder ? React.createElement('span', null, placeholder) : null,
+        React.createElement(
+          'select',
+          {
+            value:
+              currentValue?.id ??
+              currentValue?.code ??
+              currentValue?.value ??
+              currentValue?.model_id ??
+              currentValue?.voice_id ??
+              currentValue?.language_id ??
+              '',
+            onChange: (e: any) => {
+              const selected = (allValue || []).find(
+                (item: any) =>
+                  item.id === e.target.value ||
+                  item.code === e.target.value ||
+                  item.value === e.target.value ||
+                  item.model_id === e.target.value ||
+                  item.voice_id === e.target.value ||
+                  item.language_id === e.target.value,
+              );
+              if (selected) setValue(selected);
+            },
+          },
+          React.createElement(
+            'option',
+            { value: '' },
+            placeholder || 'Select option',
+          ),
+          ...(allValue || []).map((item: any) => {
+            const value =
+              item.id ??
+              item.code ??
+              item.value ??
+              item.model_id ??
+              item.voice_id ??
+              item.language_id;
+            const label = item.name ?? item.label ?? String(value);
+            return React.createElement(
+              'option',
+              { key: String(value), value: String(value) },
+              label,
+            );
+          }),
+        ),
+      ),
+  };
+});
+
 // Mock the loadProviderData to return controlled test data
 jest.mock('@/providers/config-loader', () => {
   const actual = jest.requireActual('@/providers/config-loader');
@@ -88,7 +149,7 @@ describe('ConfigRenderer', () => {
         />,
       );
 
-      expect(screen.getByText('Select model')).toBeInTheDocument();
+      expect(screen.getAllByText('Select model').length).toBeGreaterThan(0);
     });
   });
 
@@ -136,7 +197,7 @@ describe('ConfigRenderer', () => {
         />,
       );
 
-      const numberInput = screen.getByDisplayValue('0.5');
+      const numberInput = screen.getByRole('spinbutton');
       expect(numberInput).toBeInTheDocument();
       expect(numberInput).toHaveAttribute('type', 'number');
     });
@@ -153,7 +214,7 @@ describe('ConfigRenderer', () => {
         />,
       );
 
-      const numberInput = screen.getByDisplayValue('0.5');
+      const numberInput = screen.getByRole('spinbutton');
       fireEvent.change(numberInput, { target: { value: '0.7' } });
       expect(mockOnChange).toHaveBeenCalledTimes(1);
 

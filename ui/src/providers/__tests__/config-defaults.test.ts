@@ -144,6 +144,19 @@ const jsonConfig: ProviderConfig = {
   },
 };
 
+const scopedVadConfig: ProviderConfig = {
+  vad: {
+    parameters: [
+      {
+        key: 'microphone.vad.threshold',
+        label: 'VAD Threshold',
+        type: 'slider',
+        default: '0.6',
+      },
+    ],
+  },
+};
+
 describe('getDefaultsFromConfig', () => {
   it('generates correct Metadata[] from config with defaults', () => {
     const result = getDefaultsFromConfig(
@@ -283,6 +296,32 @@ describe('getDefaultsFromConfig', () => {
     const voice = findMeta(result, 'speak.voice.id');
     expect(voice).toBeDefined();
     expect(voice?.getValue()).toBe('my-custom-voice');
+  });
+
+  it('replaces scoped prefix params while keeping non-scoped metadata', () => {
+    const existing = [
+      createMetadata('rapida.credential_id', 'cred-1'),
+      createMetadata('listen.model', 'nova-3'),
+      createMetadata('microphone.vad.provider', 'ten_vad'),
+      createMetadata('microphone.vad.threshold', '0.8'),
+      createMetadata('microphone.vad.min_silence_frame', '12'),
+    ];
+
+    const result = getDefaultsFromConfig(
+      scopedVadConfig,
+      'vad',
+      existing,
+      'silero_vad',
+      {
+        includeCredential: false,
+        replacePrefix: 'microphone.vad.',
+      },
+    );
+
+    expect(findMeta(result, 'listen.model')?.getValue()).toBe('nova-3');
+    expect(findMeta(result, 'rapida.credential_id')?.getValue()).toBe('cred-1');
+    expect(findMeta(result, 'microphone.vad.threshold')?.getValue()).toBe('0.8');
+    expect(findMeta(result, 'microphone.vad.min_silence_frame')).toBeUndefined();
   });
 });
 

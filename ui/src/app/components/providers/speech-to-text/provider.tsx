@@ -3,89 +3,15 @@ import { ProviderComponentProps } from '@/app/components/providers';
 import { loadProviderConfig } from '@/providers/config-loader';
 import { getDefaultsFromConfig, validateFromConfig } from '@/providers/config-defaults';
 import { ConfigRenderer } from '@/app/components/providers/config-renderer';
-import {
-  ConfigureAssemblyAISpeechToText,
-  GetAssemblyAIDefaultOptions,
-  ValidateAssemblyAIOptions,
-} from '@/app/components/providers/speech-to-text/assemblyai';
-import {
-  ConfigureAWSSpeechToText,
-  GetAWSDefaultOptions,
-  ValidateAWSOptions,
-} from '@/app/components/providers/speech-to-text/aws';
-import {
-  ConfigureAzureSpeechToText,
-  GetAzureDefaultOptions,
-  ValidateAzureOptions,
-} from '@/app/components/providers/speech-to-text/azure-speech-service';
-import {
-  ConfigureCartesiaSpeechToText,
-  GetCartesiaDefaultOptions,
-  ValidateCartesiaOptions,
-} from '@/app/components/providers/speech-to-text/cartesia';
-import {
-  ConfigureDeepgramSpeechToText,
-  GetDeepgramDefaultOptions,
-  ValidateDeepgramOptions,
-} from '@/app/components/providers/speech-to-text/deepgram';
-import {
-  ConfigureGoogleSpeechToText,
-  GetGoogleDefaultOptions,
-  ValidateGoogleOptions,
-} from '@/app/components/providers/speech-to-text/google-speech-service';
-import {
-  ConfigureGroqSpeechToText,
-  GetGroqDefaultOptions,
-  ValidateGroqOptions,
-} from '@/app/components/providers/speech-to-text/groq';
-import {
-  ConfigureNvidiaSpeechToText,
-  GetNvidiaDefaultOptions,
-  ValidateNvidiaOptions,
-} from '@/app/components/providers/speech-to-text/nvidia';
-import { ConfigureOpenAISpeechToText } from '@/app/components/providers/speech-to-text/openai';
 import { FC } from 'react';
-import {
-  ConfigureSarvamSpeechToText,
-  GetSarvamDefaultOptions,
-  ValidateSarvamOptions,
-} from '@/app/components/providers/speech-to-text/sarvam';
-import {
-  ConfigureSpeechmaticsSpeechToText,
-  GetSpeechmaticsDefaultOptions,
-  ValidateSpeechmaticsOptions,
-} from '@/app/components/providers/speech-to-text/speechmatics';
 
 export const GetDefaultSpeechToTextIfInvalid = (
   provider: string,
   parameters: Metadata[],
 ) => {
   const config = loadProviderConfig(provider);
-  if (config?.stt) return getDefaultsFromConfig(config, 'stt', parameters, provider);
-  switch (provider) {
-    case 'google-speech-service':
-      return GetGoogleDefaultOptions(parameters);
-    case 'deepgram':
-      return GetDeepgramDefaultOptions(parameters);
-    case 'azure-speech-service':
-      return GetAzureDefaultOptions(parameters);
-    case 'assemblyai':
-      return GetAssemblyAIDefaultOptions(parameters);
-    case 'cartesia':
-      return GetCartesiaDefaultOptions(parameters);
-    case 'sarvamai':
-      return GetSarvamDefaultOptions(parameters);
-    case 'groq':
-      return GetGroqDefaultOptions(parameters);
-    case 'speechmatics':
-      return GetSpeechmaticsDefaultOptions(parameters);
-    case 'nvidia':
-      return GetNvidiaDefaultOptions(parameters);
-    case 'aws':
-      return GetAWSDefaultOptions(parameters);
-    default:
-      return parameters;
-  }
+  if (!config?.stt) return parameters;
+  return getDefaultsFromConfig(config, 'stt', parameters, provider);
 };
 
 export const ValidateSpeechToTextIfInvalid = (
@@ -93,31 +19,8 @@ export const ValidateSpeechToTextIfInvalid = (
   parameters: Metadata[],
 ): string | undefined => {
   const config = loadProviderConfig(provider);
-  if (config?.stt) return validateFromConfig(config, 'stt', provider, parameters);
-  switch (provider) {
-    case 'google-speech-service':
-      return ValidateGoogleOptions(parameters);
-    case 'deepgram':
-      return ValidateDeepgramOptions(parameters);
-    case 'azure-speech-service':
-      return ValidateAzureOptions(parameters);
-    case 'assemblyai':
-      return ValidateAssemblyAIOptions(parameters);
-    case 'cartesia':
-      return ValidateCartesiaOptions(parameters);
-    case 'sarvamai':
-      return ValidateSarvamOptions(parameters);
-    case 'groq':
-      return ValidateGroqOptions(parameters);
-    case 'speechmatics':
-      return ValidateSpeechmaticsOptions(parameters);
-    case 'nvidia':
-      return ValidateNvidiaOptions(parameters);
-    case 'aws':
-      return ValidateAWSOptions(parameters);
-    default:
-      return undefined;
-  }
+  if (!config?.stt) return undefined;
+  return validateFromConfig(config, 'stt', provider, parameters);
 };
 
 /**
@@ -177,97 +80,14 @@ export const SpeechToTextConfigComponent: FC<ProviderComponentProps> = ({
   onChangeParameter,
 }) => {
   const config = loadProviderConfig(provider);
-  if (config?.stt) {
-    return (
-      <ConfigRenderer
-        provider={provider}
-        category="stt"
-        config={config.stt}
-        parameters={parameters}
-        onParameterChange={onChangeParameter}
-      />
-    );
-  }
-  switch (provider) {
-    case 'google-speech-service':
-      return (
-        <ConfigureGoogleSpeechToText
-          parameters={parameters}
-          onParameterChange={onChangeParameter}
-        />
-      );
-
-    case 'deepgram':
-      return (
-        <ConfigureDeepgramSpeechToText
-          parameters={parameters}
-          onParameterChange={onChangeParameter}
-        />
-      );
-    case 'openai':
-      return (
-        <ConfigureOpenAISpeechToText
-          parameters={parameters}
-          onParameterChange={onChangeParameter}
-        />
-      );
-    case 'azure-speech-service':
-      return (
-        <ConfigureAzureSpeechToText
-          parameters={parameters}
-          onParameterChange={onChangeParameter}
-        />
-      );
-    case 'assemblyai':
-      return (
-        <ConfigureAssemblyAISpeechToText
-          parameters={parameters}
-          onParameterChange={onChangeParameter}
-        />
-      );
-    case 'cartesia':
-      return (
-        <ConfigureCartesiaSpeechToText
-          parameters={parameters}
-          onParameterChange={onChangeParameter}
-        />
-      );
-    case 'sarvamai':
-      return (
-        <ConfigureSarvamSpeechToText
-          parameters={parameters}
-          onParameterChange={onChangeParameter}
-        />
-      );
-    case 'groq':
-      return (
-        <ConfigureGroqSpeechToText
-          parameters={parameters}
-          onParameterChange={onChangeParameter}
-        />
-      );
-    case 'speechmatics':
-      return (
-        <ConfigureSpeechmaticsSpeechToText
-          parameters={parameters}
-          onParameterChange={onChangeParameter}
-        />
-      );
-    case 'nvidia':
-      return (
-        <ConfigureNvidiaSpeechToText
-          parameters={parameters}
-          onParameterChange={onChangeParameter}
-        />
-      );
-    case 'aws':
-      return (
-        <ConfigureAWSSpeechToText
-          parameters={parameters}
-          onParameterChange={onChangeParameter}
-        />
-      );
-    default:
-      return null;
-  }
+  if (!config?.stt) return null;
+  return (
+    <ConfigRenderer
+      provider={provider}
+      category="stt"
+      config={config.stt}
+      parameters={parameters}
+      onParameterChange={onChangeParameter}
+    />
+  );
 };
