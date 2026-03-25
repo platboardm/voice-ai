@@ -116,7 +116,7 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
   /**
    * global loader
    */
-  const { loading, showLoader, hideLoader } = useRapidaStore();
+  const { showLoader, hideLoader } = useRapidaStore();
   const { providerCredentials } = useAllProviderCredentials();
 
   const onChangeProvider = (providerName: string) => {
@@ -292,7 +292,6 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
               </ICancelButton>,
               <IBlueBGArrowButton
                 type="button"
-                isLoading={loading}
                 onClick={() => {
                   if (validateInstruction()) {
                     setActiveTab('commit-assistant');
@@ -359,7 +358,6 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
                 Cancel
               </ICancelButton>,
               <IBlueBGArrowButton
-                isLoading={loading}
                 type="button"
                 onClick={() => {
                   createProviderModel();

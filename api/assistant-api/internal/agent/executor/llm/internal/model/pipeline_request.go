@@ -18,193 +18,123 @@ import (
 	"github.com/rapidaai/protos"
 )
 
-// executeRequestFlow routes request packets by type, similar to dispatcher-style
-// handlers in adapters. UserTextPacket is processed via request pipeline stages.
-func (e *modelAssistantExecutor) executeRequest(ctx context.Context, communication internal_type.Communication, pkt internal_type.Packet) error {
-	switch p := pkt.(type) {
-	case internal_type.UserTextPacket:
-		return e.handleRequestUserText(ctx, communication, p)
-	case internal_type.StaticPacket:
-		return e.handleRequestStatic(p)
-	case internal_type.InterruptionPacket:
-		return e.handleRequestInterruption()
-	default:
-		return fmt.Errorf("unsupported packet type: %T", pkt)
-	}
-}
-
-func (e *modelAssistantExecutor) handleRequestUserText(ctx context.Context, communication internal_type.Communication, pkt internal_type.UserTextPacket) error {
-	return e.executeUserTurn(ctx, communication, pkt)
-}
-
-func (e *modelAssistantExecutor) handleRequestStatic(pkt internal_type.StaticPacket) error {
-	e.mu.Lock()
-	e.history = append(e.history, &protos.Message{
-		Role: "assistant",
-		Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
-			Contents: []string{pkt.Text},
-		}},
-	})
-	e.mu.Unlock()
-	return nil
-}
-
-func (e *modelAssistantExecutor) handleRequestInterruption() error {
-	e.mu.Lock()
-	e.activeContextID = ""
-	e.mu.Unlock()
-	return nil
-}
-
-// requestPipeline returns ordered request handlers.
-// Add new turn preprocessing steps here.
-func (e *modelAssistantExecutor) requestPipeline() []RequestStage {
-	return []RequestStage{
-		requestStageFunc{name: "build_user_message", fn: e.stageBuildUserMessage},
-		requestStageFunc{name: "snapshot_history", fn: e.stageSnapshotHistory},
-		requestStageFunc{name: "validate_history", fn: e.stageValidateHistory},
-		requestStageFunc{name: "prepare_prompt_arguments", fn: e.stagePreparePromptArguments},
-	}
-}
-
-func (e *modelAssistantExecutor) initTurn(pkt internal_type.UserTextPacket) LLMRequestPipeline {
-	input := InputPipeline{
-		ContextID: pkt.ContextID,
-		Packet:    pkt,
-		UserInput: pkt,
-	}
-	return LLMRequestPipeline{
-		Eval: EvalPipeline{
-			History: HistoryPipeline{
-				Argumented: ArgumentedPipeline{
-					Input: input,
-				},
-			},
-		},
-		ContextID: input.ContextID,
-	}
-}
-
-// executeUserTurn applies the layered flow:
-// execute -> preprocess -> argumentation/build context -> chat request.
-func (e *modelAssistantExecutor) executeUserTurn(ctx context.Context, communication internal_type.Communication, pkt internal_type.UserTextPacket) error {
-	pipeline := e.initTurn(pkt)
-	for _, stage := range e.requestPipeline() {
-		if pipeline.Eval.Stop {
+// Pipeline is the central recursive router. Packets enter and get transformed
+// into pipeline types; pipeline types get their stages executed.
+func (e *modelAssistantExecutor) Pipeline(ctx context.Context, communication internal_type.Communication, v Pipeline) error {
+	switch p := v.(type) {
+	case *LocalHistoryPipeline:
+		if p.Message == nil {
 			return nil
 		}
-		if err := stage.Run(ctx, communication, &pipeline); err != nil {
-			e.logger.Errorf("request stage %s failed: %v", stage.Name(), err)
+		e.mu.Lock()
+		e.history = append(e.history, p.Message)
+		e.mu.Unlock()
+		return nil
+	case *PrepareHistoryPipeline:
+		e.mu.RLock()
+		history := make([]*protos.Message, len(e.history))
+		copy(history, e.history)
+		e.mu.RUnlock()
+		return e.Pipeline(ctx, communication, &AssistantArgumentationPipeline{
+			InputPipeline: InputPipeline{
+				Packet: p.Packet,
+			},
+			UserMessage: &protos.Message{
+				Role: "user",
+				Message: &protos.Message_User{
+					User: &protos.UserMessage{Content: p.Packet.Text},
+				},
+			},
+			History:    history,
+			PromptArgs: map[string]interface{}{},
+		})
+	case *ArgumentationPipeline:
+		return e.Pipeline(ctx, communication, &AssistantArgumentationPipeline{
+			InputPipeline: p.InputPipeline,
+			UserMessage:   p.UserMessage,
+			History:       p.History,
+			PromptArgs:    p.PromptArgs,
+		})
+	case *AssistantArgumentationPipeline:
+		return e.Pipeline(ctx, communication, &ConversationArgumentationPipeline{
+			InputPipeline: p.InputPipeline,
+			UserMessage:   p.UserMessage,
+			History:       p.History,
+			PromptArgs:    utils.MergeMaps(p.PromptArgs, e.buildAssistantArgumentationContext(communication)),
+		})
+	case *ConversationArgumentationPipeline:
+		return e.Pipeline(ctx, communication, &MessageArgumentationPipeline{
+			InputPipeline: p.InputPipeline,
+			UserMessage:   p.UserMessage,
+			History:       p.History,
+			PromptArgs:    utils.MergeMaps(p.PromptArgs, e.buildConversationArgumentationContext(communication)),
+		})
+	case *MessageArgumentationPipeline:
+		return e.Pipeline(ctx, communication, &SessionArgumentationPipeline{
+			InputPipeline: p.InputPipeline,
+			UserMessage:   p.UserMessage,
+			History:       p.History,
+			PromptArgs:    utils.MergeMaps(p.PromptArgs, e.buildMessageArgumentationContext(p.Packet)),
+		})
+	case *SessionArgumentationPipeline:
+		promptArgs := utils.MergeMaps(p.PromptArgs, e.buildSessionArgumentationContext(communication))
+		if p.Mode == "tool_followup" {
+			return e.Pipeline(ctx, communication, &ToolFollowUpExecutePipeline{
+				InputPipeline: p.InputPipeline,
+				History:       p.History,
+				PromptArgs:    promptArgs,
+			})
+		}
+		return e.Pipeline(ctx, communication, &LLMRequestEventPipeline{
+			InputPipeline: p.InputPipeline,
+			UserMessage:   p.UserMessage,
+			History:       p.History,
+			PromptArgs:    promptArgs,
+		})
+	case *LLMRequestEventPipeline:
+		communication.OnPacket(ctx, internal_type.ConversationEventPacket{
+			ContextID: p.Packet.ContextID,
+			Name:      "llm",
+			Data: map[string]string{
+				"type":             "executing",
+				"script":           p.Packet.Text,
+				"input_char_count": fmt.Sprintf("%d", len(p.Packet.Text)),
+				"history_count":    fmt.Sprintf("%d", len(p.History)),
+			},
+			Time: time.Now(),
+		})
+		if err := e.chat(ctx, communication, p.Packet, p.PromptArgs, p.UserMessage, p.History...); err != nil {
 			return err
 		}
-	}
-
-	communication.OnPacket(ctx, internal_type.ConversationEventPacket{
-		ContextID: pipeline.ContextID,
-		Name:      "llm",
-		Data: map[string]string{
-			"type":             "executing",
-			"script":           pkt.Text,
-			"input_char_count": fmt.Sprintf("%d", len(pkt.Text)),
-			"history_count":    fmt.Sprintf("%d", len(pipeline.History)),
-		},
-		Time: time.Now(),
-	})
-	if err := e.chat(ctx, communication, pipeline.ContextID, pipeline.PromptArgs, pipeline.UserMessage, pipeline.History...); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (e *modelAssistantExecutor) stageBuildUserMessage(_ context.Context, _ internal_type.Communication, pipeline *LLMRequestPipeline) error {
-	pkt, ok := pipeline.Eval.History.Argumented.Input.Packet.(internal_type.UserTextPacket)
-	if !ok {
-		return fmt.Errorf("unexpected turn packet type: %T", pipeline.Eval.History.Argumented.Input.Packet)
-	}
-	pipeline.UserMessage = &protos.Message{
-		Role: "user",
-		Message: &protos.Message_User{
-			User: &protos.UserMessage{Content: pkt.Text},
-		},
-	}
-	pipeline.Eval.History.Argumented.UserMessage = pipeline.UserMessage
-	return nil
-}
-
-func (e *modelAssistantExecutor) stageSnapshotHistory(_ context.Context, _ internal_type.Communication, pipeline *LLMRequestPipeline) error {
-	pipeline.History = e.snapshotHistory()
-	pipeline.Eval.History.History = pipeline.History
-	return nil
-}
-
-func (e *modelAssistantExecutor) stageValidateHistory(_ context.Context, _ internal_type.Communication, pipeline *LLMRequestPipeline) error {
-	return e.validateHistorySequence(pipeline.History)
-}
-
-func (e *modelAssistantExecutor) stagePreparePromptArguments(_ context.Context, communication internal_type.Communication, pipeline *LLMRequestPipeline) error {
-	pipeline.PromptArgs = e.preparePromptArguments(communication, pipeline.Eval.History.Argumented.Input.Packet)
-	pipeline.Eval.History.Argumented.PromptArgs = pipeline.PromptArgs
-	return nil
-}
-
-func (e *modelAssistantExecutor) preparePromptArguments(communication internal_type.Communication, packet internal_type.Packet) map[string]interface{} {
-	return clonePromptArguments(e.buildPromptContext(communication, packet))
-}
-
-func (e *modelAssistantExecutor) preparePromptArgumentsForResponse(communication internal_type.Communication, contextID string) map[string]interface{} {
-	e.mu.RLock()
-	snapshot := make([]*protos.Message, len(e.history))
-	copy(snapshot, e.history)
-	e.mu.RUnlock()
-
-	language := e.latestUserLanguage(communication)
-
-	var packet internal_type.Packet
-	for i := len(snapshot) - 1; i >= 0; i-- {
-		if user := snapshot[i].GetUser(); user != nil {
-			packet = internal_type.UserTextPacket{
-				ContextID: contextID,
-				Text:      user.GetContent(),
-				Language:  language,
-			}
-			break
+		return e.Pipeline(ctx, communication, &LocalHistoryPipeline{
+			Message: p.UserMessage,
+		})
+	case *ToolFollowUpExecutePipeline:
+		return e.chatWithHistory(ctx, communication, p.Packet.ContextID, p.PromptArgs)
+	case *LLMResponsePipeline:
+		if err := e.stageValidateResponse(ctx, communication, p); err != nil {
+			return err
 		}
+		if err := e.stageBuildResponseView(ctx, communication, p); err != nil {
+			return err
+		}
+		if err := e.stageEmitResponseUpstream(ctx, communication, p); err != nil {
+			return err
+		}
+		if err := e.stageToolFollowUpResponse(ctx, communication, p); err != nil {
+			return err
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported pipeline type: %T", v)
 	}
-	return clonePromptArguments(e.buildPromptContext(communication, packet))
 }
 
-func (e *modelAssistantExecutor) latestUserLanguage(communication internal_type.Communication) string {
-	histories := communication.GetHistories()
-	for i := len(histories) - 1; i >= 0; i-- {
-		switch h := histories[i].(type) {
-		case internal_type.SaveMessagePacket:
-			if h.MessageRole == "user" && h.Language != "" {
-				return h.Language
-			}
-		case internal_type.UserTextPacket:
-			if h.Language != "" {
-				return h.Language
-			}
-		case *internal_type.UserTextPacket:
-			if h != nil && h.Language != "" {
-				return h.Language
-			}
-		}
-	}
-
-	if meta := communication.GetMetadata(); meta != nil {
-		if s, ok := meta["client.language"].(string); ok {
-			return s
-		}
-	}
-	return ""
-}
-
-func clonePromptArguments(in map[string]interface{}) map[string]interface{} {
+func (e *modelAssistantExecutor) clonePromptArguments(in map[string]interface{}) map[string]interface{} {
 	out := make(map[string]interface{}, len(in))
 	for k, v := range in {
 		if nested, ok := v.(map[string]interface{}); ok {
-			out[k] = clonePromptArguments(nested)
+			out[k] = e.clonePromptArguments(nested)
 			continue
 		}
 		out[k] = v
@@ -212,11 +142,8 @@ func clonePromptArguments(in map[string]interface{}) map[string]interface{} {
 	return out
 }
 
-// buildPromptContext assembles the full template variable map from Communication
-// state and the current turn's message data.
-func (e *modelAssistantExecutor) buildPromptContext(communication internal_type.Communication, packet internal_type.Packet) map[string]interface{} {
+func (e *modelAssistantExecutor) buildAssistantArgumentationContext(communication internal_type.Communication) map[string]interface{} {
 	now := time.Now().UTC()
-
 	system := map[string]interface{}{
 		"current_date":     now.Format("2006-01-02"),
 		"current_time":     now.Format("15:04:05"),
@@ -237,11 +164,17 @@ func (e *modelAssistantExecutor) buildPromptContext(communication internal_type.
 		}
 	}
 
-	session := map[string]interface{}{}
-	if m, ok := any(communication).(interface{ GetMode() type_enums.MessageMode }); ok {
-		session["mode"] = m.GetMode().String()
-	}
+	args := communication.GetArgs()
+	return utils.MergeMaps(
+		map[string]interface{}{"system": system},
+		map[string]interface{}{"assistant": assistant},
+		map[string]interface{}{"message": map[string]interface{}{"language": "English"}},
+		map[string]interface{}{"args": args},
+		args,
+	)
+}
 
+func (e *modelAssistantExecutor) buildConversationArgumentationContext(communication internal_type.Communication) map[string]interface{} {
 	conversation := map[string]interface{}{}
 	if conv := communication.Conversation(); conv != nil {
 		conversation["id"] = fmt.Sprintf("%d", conv.Id)
@@ -256,48 +189,32 @@ func (e *modelAssistantExecutor) buildPromptContext(communication internal_type.
 			conversation["updated_date"] = updated.UTC().Format(time.RFC3339)
 		}
 	}
-
-	message := e.messageContext(packet)
-	args := communication.GetArgs()
-
-	return utils.MergeMaps(
-		map[string]interface{}{"system": system},
-		map[string]interface{}{"assistant": assistant},
-		map[string]interface{}{"conversation": conversation},
-		map[string]interface{}{"session": session},
-		map[string]interface{}{"message": message},
-		map[string]interface{}{"args": args},
-		args,
-	)
+	return map[string]interface{}{"conversation": conversation}
 }
 
-// messageContext maps the current packet into prompt variables under message.*.
-func (e *modelAssistantExecutor) messageContext(packet internal_type.Packet) map[string]interface{} {
+func (e *modelAssistantExecutor) buildMessageArgumentationContext(packet internal_type.UserTextPacket) map[string]interface{} {
 	message := map[string]interface{}{
-		"language": "",
-		"text":     "",
+		"text": "",
 	}
-	switch p := packet.(type) {
-	case internal_type.UserTextPacket:
-		message["language"] = p.Language
-		message["text"] = p.Text
-	case *internal_type.UserTextPacket:
-		if p != nil {
-			message["language"] = p.Language
-			message["text"] = p.Text
-		}
-	case internal_type.ExecuteLLMPacket:
-		message["language"] = p.Language
-		message["text"] = p.Input
-	case *internal_type.ExecuteLLMPacket:
-		if p != nil {
-			message["language"] = p.Language
-			message["text"] = p.Input
-		}
-	case internal_type.MessagePacket:
-		message["text"] = p.Content()
+	if packet.Language != "" {
+		message["language"] = packet.Language
 	}
-	return message
+	message["text"] = packet.Text
+	return map[string]interface{}{"message": message}
+}
+
+type modeCommunication interface {
+	GetMode() type_enums.MessageMode
+}
+
+func (e *modelAssistantExecutor) buildSessionArgumentationContext(communication internal_type.Communication) map[string]interface{} {
+	session := map[string]interface{}{}
+	if modeComm, ok := communication.(modeCommunication); ok {
+		if mode := modeComm.GetMode(); mode != "" {
+			session["mode"] = mode.String()
+		}
+	}
+	return map[string]interface{}{"session": session}
 }
 
 // validateHistorySequence enforces tool-call sequencing invariants:

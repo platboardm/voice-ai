@@ -57,16 +57,27 @@ import (
 var _ internal_agent_executor.AssistantExecutor = (*modelAssistantExecutor)(nil)
 
 type modelAssistantExecutor struct {
-	logger             commons.Logger
-	toolExecutor       internal_agent_executor.ToolExecutor
+	logger commons.Logger
+
+	// toolExecutor is used to execute tool calls requested by the LLM and append results to history atomically with the assistant message.
+	toolExecutor internal_agent_executor.ToolExecutor
+
+	// providerCredential is fetched on Initialize and used for all chat requests. It is not modified after initialization, so it does not require synchronization.
 	providerCredential *protos.VaultCredential
 	inputBuilder       integration_client_builders.InputChatBuilder
-	history            []*protos.Message
-	stream             grpc.BidiStreamingClient[protos.ChatRequest, protos.ChatResponse]
-	mu                 sync.RWMutex
-	activeContextID    string // set by chat(), cleared on interrupt, checked by listener
-	ctx                context.Context
-	ctxCancel          context.CancelFunc
+
+	// building history
+	history []*protos.Message
+
+	// stream is set on Initialize and cleared on Close. It is used by both the Execute method (to send chat requests) and the listener goroutine (to receive responses), so access is synchronized via mu.
+	stream grpc.BidiStreamingClient[protos.ChatRequest, protos.ChatResponse]
+
+	mu            sync.RWMutex
+	currentPacket internal_type.Packet
+
+	//
+	ctx       context.Context
+	ctxCancel context.CancelFunc
 }
 
 func NewModelAssistantExecutor(logger commons.Logger) internal_agent_executor.AssistantExecutor {
@@ -152,12 +163,15 @@ func (e *modelAssistantExecutor) Initialize(ctx context.Context, communication i
 func (e *modelAssistantExecutor) chat(
 	_ context.Context,
 	communication internal_type.Communication,
-	contextID string,
+	currentPacket internal_type.Packet,
 	promptArgs map[string]interface{},
 	in *protos.Message,
 	histories ...*protos.Message,
 ) error {
-	request := e.buildChatRequest(communication, contextID, promptArgs, append(histories, in)...)
+	if currentPacket == nil {
+		return fmt.Errorf("current packet is nil")
+	}
+	request := e.buildChatRequest(communication, currentPacket.ContextId(), promptArgs, append(histories, in)...)
 
 	e.mu.RLock()
 	stream := e.stream
@@ -171,8 +185,7 @@ func (e *modelAssistantExecutor) chat(
 		return fmt.Errorf("failed to send chat request: %w", err)
 	}
 	e.mu.Lock()
-	e.activeContextID = contextID
-	e.history = append(e.history, in)
+	e.currentPacket = currentPacket
 	e.mu.Unlock()
 	return nil
 }
@@ -240,7 +253,7 @@ func (e *modelAssistantExecutor) listen(ctx context.Context, communication inter
 			})
 			return
 		}
-		e.handleResponse(ctx, communication, resp)
+		e.executeResponse(ctx, communication, resp)
 	}
 }
 
@@ -259,45 +272,69 @@ func (e *modelAssistantExecutor) streamErrorReason(err error) string {
 	}
 }
 
-// handleResponse processes a single response from the server.
-func (e *modelAssistantExecutor) handleResponse(ctx context.Context, communication internal_type.Communication, resp *protos.ChatResponse) {
-	e.executeResponseFlow(ctx, communication, resp)
-}
-
 // executeToolCalls executes all requested tool calls and sends the follow-up
 // chat with both the assistant message and tool results appended atomically.
 // The assistant message is NOT yet in e.history — we add both together to
 // prevent a concurrent user message from seeing tool_calls without results
 // (which causes OpenAI 400 errors).
 func (e *modelAssistantExecutor) executeToolCalls(ctx context.Context, communication internal_type.Communication, contextID string, output *protos.Message,
-	promptArgs map[string]interface{},
 ) error {
 	toolExecution := e.toolExecutor.ExecuteAll(ctx, contextID, output.GetAssistant().GetToolCalls(), communication)
 	e.mu.Lock()
-	if e.activeContextID != contextID {
-		// Context was interrupted during tool execution — discard results.
+	packet, ok := e.currentPacket.(internal_type.UserTextPacket)
+	if e.currentPacket != nil && e.currentPacket.ContextId() != contextID {
 		e.mu.Unlock()
 		return nil
 	}
+	history := make([]*protos.Message, len(e.history))
+	copy(history, e.history)
 	e.history = append(e.history, output, toolExecution)
 	e.mu.Unlock()
-	return e.chatWithHistory(ctx, communication, contextID, promptArgs)
+	if !ok {
+		return e.chatWithHistory(ctx, communication, contextID, map[string]interface{}{})
+	}
+	return e.Pipeline(ctx, communication, &ArgumentationPipeline{
+		InputPipeline: InputPipeline{
+			Packet: packet,
+			Mode:   "tool_followup",
+		},
+		History:    history,
+		PromptArgs: map[string]interface{}{},
+	})
 }
 
 // Execute forwards an incoming packet to the LLM.
 //
 // Emits ConversationEventPacket: {type: "executing"} for UserTextPacket.
 func (e *modelAssistantExecutor) Execute(ctx context.Context, communication internal_type.Communication, pctk internal_type.Packet) error {
-	return e.executeRequest(ctx, communication, pctk)
-}
-
-// snapshotHistory returns a point-in-time copy of the conversation history.
-func (e *modelAssistantExecutor) snapshotHistory() []*protos.Message {
-	e.mu.RLock()
-	snapshot := make([]*protos.Message, len(e.history))
-	copy(snapshot, e.history)
-	e.mu.RUnlock()
-	return snapshot
+	switch p := pctk.(type) {
+	case internal_type.UserTextPacket:
+		e.mu.Lock()
+		e.currentPacket = p
+		e.mu.Unlock()
+		return e.Pipeline(ctx,
+			communication,
+			&PrepareHistoryPipeline{
+				InputPipeline: InputPipeline{
+					Packet: p,
+				}},
+		)
+	case internal_type.StaticPacket:
+		return e.Pipeline(ctx, communication, &LocalHistoryPipeline{
+			Message: &protos.Message{
+				Role: "assistant",
+				Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+					Contents: []string{p.Text},
+				}},
+			},
+		})
+	case internal_type.InterruptionPacket:
+		e.mu.Lock()
+		e.currentPacket = nil
+		e.mu.Unlock()
+		return nil
+	}
+	return fmt.Errorf("unsupported packet type: %T", pctk)
 }
 
 // Close cancels the listener context, tears down the stream, and clears history.
@@ -306,11 +343,12 @@ func (e *modelAssistantExecutor) Close(ctx context.Context) error {
 		e.ctxCancel()
 	}
 	e.mu.Lock()
+	defer e.mu.Unlock()
 	if e.stream != nil {
 		e.stream.CloseSend()
 		e.stream = nil
 	}
+	e.currentPacket = nil
 	e.history = make([]*protos.Message, 0)
-	e.mu.Unlock()
 	return nil
 }

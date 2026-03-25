@@ -67,6 +67,16 @@ describe('ConfigPrompt argument hints', () => {
       screen.getAllByText('{{system.current_date}}').length,
     ).toBeGreaterThan(0);
     expect(screen.getAllByText('{{assistant.name}}').length).toBeGreaterThan(0);
+    expect(screen.queryByText('{{session.mode}}')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('{{conversation.updated_date}}'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('{{conversation.duration}}'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('{{assistant.language}}'),
+    ).not.toBeInTheDocument();
   });
 
   it('does not show runtime argument hint text when hints are not provided', () => {

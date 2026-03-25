@@ -60,7 +60,7 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
   const [versionMessage, setVersionMessage] = useState(
     `Changed on ${currentDate}`,
   );
-  const { loading, showLoader, hideLoader } = useRapidaStore();
+  const { showLoader, hideLoader } = useRapidaStore();
 
   //   websocket url
 
@@ -235,7 +235,6 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
               </ICancelButton>,
               <IBlueBGArrowButton
                 type="button"
-                isLoading={loading}
                 onClick={() => {
                   if (validateWebsocket()) {
                     setActiveTab('commit-assistant');
@@ -302,7 +301,6 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
                 Cancel
               </ICancelButton>,
               <IBlueBGArrowButton
-                isLoading={loading}
                 type="button"
                 onClick={() => {
                   createProviderModel();

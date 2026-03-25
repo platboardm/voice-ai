@@ -1,10 +1,9 @@
-import React, { FC, useEffect } from 'react';
+import React, { FC, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useGlobalNavigation } from '@/hooks/use-global-navigator';
 import { toHumanReadableDateTime } from '@/utils/date';
 import { Activity, Pencil, Plus, RotateCw, Trash2 } from 'lucide-react';
 import { useCurrentCredential } from '@/hooks/use-credential';
-import { useRapidaStore } from '@/hooks';
 import { SectionLoader } from '@/app/components/loader/section-loader';
 import { IButton } from '@/app/components/form/button';
 import toast from 'react-hot-toast/headless';
@@ -82,18 +81,18 @@ const ConfigureAssistantTelemetry: FC<{ assistantId: string }> = ({
   const navigation = useGlobalNavigation();
   const action = useAssistantTelemetryPageStore();
   const { authId, token, projectId } = useCurrentCredential();
-  const { loading, showLoader, hideLoader } = useRapidaStore();
+  const [loading, setLoading] = useState(true);
   const { showDialog, ConfirmDialogComponent } = useConfirmDialog({
     title: 'Delete telemetry?',
     content: 'This telemetry provider will be removed from the assistant.',
   });
 
   useEffect(() => {
-    showLoader('block');
     get();
   }, []);
 
   const get = () => {
+    setLoading(true);
     action.getAssistantTelemetry(
       assistantId,
       projectId,
@@ -101,16 +100,16 @@ const ConfigureAssistantTelemetry: FC<{ assistantId: string }> = ({
       authId,
       e => {
         toast.error(e);
-        hideLoader();
+        setLoading(false);
       },
       () => {
-        hideLoader();
+        setLoading(false);
       },
     );
   };
 
   const deleteTelemetry = (telemetryId: string) => {
-    showLoader('block');
+    setLoading(true);
     action.deleteAssistantTelemetry(
       assistantId,
       telemetryId,
@@ -119,7 +118,7 @@ const ConfigureAssistantTelemetry: FC<{ assistantId: string }> = ({
       authId,
       e => {
         toast.error(e);
-        hideLoader();
+        setLoading(false);
       },
       () => {
         toast.success('Telemetry provider deleted successfully');
@@ -127,14 +126,6 @@ const ConfigureAssistantTelemetry: FC<{ assistantId: string }> = ({
       },
     );
   };
-
-  if (loading) {
-    return (
-      <div className="h-full w-full flex flex-col items-center justify-center">
-        <SectionLoader />
-      </div>
-    );
-  }
 
   const telemetryCount = action.telemetries.length;
 
@@ -167,7 +158,11 @@ const ConfigureAssistantTelemetry: FC<{ assistantId: string }> = ({
         </div>
       </PageHeaderBlock>
 
-      {telemetryCount > 0 ? (
+      {loading ? (
+        <div className="flex flex-col flex-1 items-center justify-center">
+          <SectionLoader />
+        </div>
+      ) : telemetryCount > 0 ? (
         <div
           className={cn(
             'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 content-start',

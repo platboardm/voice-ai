@@ -16,36 +16,19 @@ import (
 	"github.com/rapidaai/protos"
 )
 
-func (e *modelAssistantExecutor) executeResponseFlow(ctx context.Context, communication internal_type.Communication, resp *protos.ChatResponse) {
+func (e *modelAssistantExecutor) executeResponse(ctx context.Context, communication internal_type.Communication, resp *protos.ChatResponse) {
 	if e.isStaleResponse(resp.GetRequestId()) {
 		return
 	}
-	pipeline := &LLMResponsePipeline{
-		Response:   resp,
-		ContextID:  resp.GetRequestId(),
-		PromptArgs: e.preparePromptArgumentsForResponse(communication, resp.GetRequestId()),
-	}
-	for _, stage := range e.responsePipeline() {
-		if pipeline.Stop {
-			return
-		}
-		if err := stage.Run(ctx, communication, pipeline); err != nil {
-			e.logger.Errorf("response stage %s failed: %v", stage.Name(), err)
-			communication.OnPacket(ctx, internal_type.LLMErrorPacket{
-				ContextID: pipeline.ContextID,
-				Error:     fmt.Errorf("response stage failed: %w", err),
-			})
-			return
-		}
-	}
-}
-
-func (e *modelAssistantExecutor) responsePipeline() []ResponseStage {
-	return []ResponseStage{
-		responseStageFunc{name: "validate_response", fn: e.stageValidateResponse},
-		responseStageFunc{name: "build_response_view", fn: e.stageBuildResponseView},
-		responseStageFunc{name: "emit_response_upstream", fn: e.stageEmitResponseUpstream},
-		responseStageFunc{name: "tool_follow_up", fn: e.stageToolFollowUpResponse},
+	if err := e.Pipeline(ctx, communication, &LLMResponsePipeline{
+		Response:  resp,
+		ContextID: resp.GetRequestId(),
+	}); err != nil {
+		e.logger.Errorf("response pipeline failed: %v", err)
+		communication.OnPacket(ctx, internal_type.LLMErrorPacket{
+			ContextID: resp.GetRequestId(),
+			Error:     fmt.Errorf("response pipeline failed: %w", err),
+		})
 	}
 }
 
@@ -142,7 +125,7 @@ func (e *modelAssistantExecutor) stageToolFollowUpResponse(ctx context.Context, 
 	if len(pipeline.Metrics) == 0 || !pipeline.HasToolCalls {
 		return nil
 	}
-	if err := e.executeToolCalls(ctx, communication, pipeline.ContextID, pipeline.Output, pipeline.PromptArgs); err != nil {
+	if err := e.executeToolCalls(ctx, communication, pipeline.ContextID, pipeline.Output); err != nil {
 		communication.OnPacket(ctx, internal_type.LLMErrorPacket{
 			ContextID: pipeline.ContextID,
 			Error:     fmt.Errorf("tool call follow-up failed: %w", err),
@@ -154,5 +137,5 @@ func (e *modelAssistantExecutor) stageToolFollowUpResponse(ctx context.Context, 
 func (e *modelAssistantExecutor) isStaleResponse(requestID string) bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return e.activeContextID != "" && requestID != e.activeContextID
+	return e.currentPacket != nil && requestID != e.currentPacket.ContextId()
 }

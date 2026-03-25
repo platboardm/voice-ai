@@ -6,94 +6,106 @@
 package internal_model
 
 import (
-	"context"
 	"time"
 
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/protos"
 )
 
-// InputPipeline is the first typed artifact entering model orchestration.
+type Pipeline interface {
+	IsStop() bool
+}
+
 type InputPipeline struct {
-	ContextID string
-	Packet    internal_type.Packet
-	UserInput internal_type.UserTextPacket
+	Pipeline
+	Stop   bool
+	Packet internal_type.UserTextPacket
+	Mode   string
 }
 
-// ArgumentedPipeline holds argumentation output (prompt args + normalized user message).
-type ArgumentedPipeline struct {
-	Input       InputPipeline
-	PromptArgs  map[string]interface{}
-	UserMessage *protos.Message
+func (p InputPipeline) IsStop() bool {
+	return p.Stop
 }
 
-// HistoryPipeline enriches argumented input with current conversation history.
-type HistoryPipeline struct {
-	Argumented ArgumentedPipeline
-	History    []*protos.Message
-}
-
-// EvalPipeline is a generic hook-point before request construction.
-// Add fields here for eval scores, compaction directives, cancellation, etc.
-type EvalPipeline struct {
-	History HistoryPipeline
-	Stop    bool
-}
-
-// LLMRequestPipeline is the final typed request artifact before chat send.
-type LLMRequestPipeline struct {
-	Eval        EvalPipeline
-	ContextID   string
-	PromptArgs  map[string]interface{}
+// PrepareHistoryPipeline builds the user message and prepares validated history.
+type PrepareHistoryPipeline struct {
+	InputPipeline
 	UserMessage *protos.Message
 	History     []*protos.Message
 }
 
-// LLMResponsePipeline is the typed response artifact flowing through response stages.
+type ArgumentationPipeline struct {
+	InputPipeline
+	UserMessage *protos.Message
+	History     []*protos.Message
+	PromptArgs  map[string]interface{}
+}
+
+type AssistantArgumentationPipeline struct {
+	InputPipeline
+	UserMessage *protos.Message
+	History     []*protos.Message
+	PromptArgs  map[string]interface{}
+}
+
+type ConversationArgumentationPipeline struct {
+	InputPipeline
+	UserMessage *protos.Message
+	History     []*protos.Message
+	PromptArgs  map[string]interface{}
+}
+
+type MessageArgumentationPipeline struct {
+	InputPipeline
+	UserMessage *protos.Message
+	History     []*protos.Message
+	PromptArgs  map[string]interface{}
+}
+
+type SessionArgumentationPipeline struct {
+	InputPipeline
+	UserMessage *protos.Message
+	History     []*protos.Message
+	PromptArgs  map[string]interface{}
+}
+
+type LLMRequestEventPipeline struct {
+	InputPipeline
+	UserMessage *protos.Message
+	History     []*protos.Message
+	PromptArgs  map[string]interface{}
+}
+
+type ToolFollowUpExecutePipeline struct {
+	InputPipeline
+	History    []*protos.Message
+	PromptArgs map[string]interface{}
+}
+
+// LocalHistoryPipeline appends a message to local in-memory history.
+type LocalHistoryPipeline struct {
+	Pipeline
+	Stop    bool
+	Message *protos.Message
+}
+
+func (p LocalHistoryPipeline) IsStop() bool {
+	return p.Stop
+}
+
+// LLMResponsePipeline is the typed response state flowing through stages.
 type LLMResponsePipeline struct {
+	Pipeline
+	Stop         bool
 	Response     *protos.ChatResponse
 	ContextID    string
-	PromptArgs   map[string]interface{}
 	Output       *protos.Message
 	Metrics      []*protos.Metric
 	HasToolCalls bool
 	ResponseText string
 	Now          time.Time
-	Stop         bool
 }
 
-// OutputPipeline is the final hook-point before packets are emitted upstream.
-type OutputPipeline struct {
-	Response LLMResponsePipeline
-	Stop     bool
-}
-
-type RequestStage interface {
-	Name() string
-	Run(ctx context.Context, communication internal_type.Communication, pipeline *LLMRequestPipeline) error
-}
-
-type ResponseStage interface {
-	Name() string
-	Run(ctx context.Context, communication internal_type.Communication, pipeline *LLMResponsePipeline) error
-}
-
-type requestStageFunc struct {
-	name string
-	fn   func(context.Context, internal_type.Communication, *LLMRequestPipeline) error
-}
-
-func (s requestStageFunc) Name() string { return s.name }
-func (s requestStageFunc) Run(ctx context.Context, communication internal_type.Communication, pipeline *LLMRequestPipeline) error {
-	return s.fn(ctx, communication, pipeline)
-}
-
-type responseStageFunc struct {
-	name string
-	fn   func(context.Context, internal_type.Communication, *LLMResponsePipeline) error
-}
-
-func (s responseStageFunc) Name() string { return s.name }
-func (s responseStageFunc) Run(ctx context.Context, communication internal_type.Communication, pipeline *LLMResponsePipeline) error {
-	return s.fn(ctx, communication, pipeline)
+func (p LLMResponsePipeline) IsStop() bool {
+	return p.Stop
 }

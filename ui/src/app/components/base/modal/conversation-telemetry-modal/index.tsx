@@ -12,8 +12,8 @@ import {
 } from '@rapidaai/react';
 import { ModalProps } from '@/app/components/base/modal';
 import { connectionConfig } from '@/configs';
-import { BottomModal } from '@/app/components/base/modal/bottom-side-modal';
 import { ModalBody } from '@/app/components/base/modal/modal-body';
+import { BottomModal } from '@/app/components/base/modal/bottom-side-modal';
 import { BluredWrapper } from '@/app/components/wrapper/blured-wrapper';
 import { PaginationButtonBlock } from '@/app/components/blocks/pagination-button-block';
 import { IButton } from '@/app/components/form/button';
@@ -140,15 +140,15 @@ function TelemetryRowItem({
   return (
     <>
       <tr
-        className="hover:bg-gray-100 dark:hover:bg-gray-800/60 cursor-pointer border-b border-gray-100 dark:border-gray-800/60"
+        className="hover:bg-gray-100 dark:hover:bg-gray-800/60 cursor-pointer border-b border-gray-200 dark:border-gray-800/60"
         onClick={onToggle}
       >
         {/* date + time */}
-        <td className="pl-3 pr-2 py-1.5 whitespace-nowrap tabular-nums text-gray-400 dark:text-gray-500 text-xs">
+        <td className="pl-3 pr-2 py-1.5 whitespace-nowrap tabular-nums text-gray-400 dark:text-gray-500 text-xs border-r border-gray-200 dark:border-gray-800/60">
           {dt}
         </td>
         {/* event type */}
-        <td className={cn('px-2 py-1.5 whitespace-nowrap font-semibold text-xs', typeColor)}>
+        <td className={cn('px-2 py-1.5 whitespace-nowrap font-semibold text-xs border-r border-gray-200 dark:border-gray-800/60', typeColor)}>
           {typeLabel}
         </td>
         {/* json preview */}
@@ -158,14 +158,8 @@ function TelemetryRowItem({
       </tr>
 
       {isExpanded && (
-        <tr className="bg-gray-50 dark:bg-gray-800/40">
-          <td className="pl-3 pr-2 py-2 align-top whitespace-nowrap tabular-nums text-gray-400 dark:text-gray-500 text-xs">
-            {dt}
-          </td>
-          <td className={cn('px-2 py-2 align-top whitespace-nowrap font-semibold text-xs', typeColor)}>
-            {typeLabel}
-          </td>
-          <td className="px-2 pr-3 py-2">
+        <tr className="bg-gray-50 dark:bg-gray-800/40 border-b border-gray-200 dark:border-gray-800/60">
+          <td colSpan={3} className="px-3 py-2">
             <pre className="text-xs text-gray-700 dark:text-gray-200 whitespace-pre-wrap break-all leading-5">
               {jsonFull}
             </pre>
@@ -263,7 +257,7 @@ export function ConversationTelemetryDialog(
       setModalOpen={props.setModalOpen}
       className="w-full flex-1 h-[75vh]"
     >
-      <ModalBody className="px-0 flex-1 space-y-0 flex flex-col">
+      <ModalBody className="px-0 pt-0 gap-0 flex-1 space-y-0 flex flex-col">
         {/* Sticky header */}
         <div className="sticky top-2 z-10">
           <BluredWrapper className="border-t">

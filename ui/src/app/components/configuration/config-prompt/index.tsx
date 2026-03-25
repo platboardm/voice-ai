@@ -42,7 +42,6 @@ const RAPIDA_RESERVED_RUNTIME_VARIABLES: {
   },
   { variable: '{{assistant.name}}', runtimeValue: 'Assistant name' },
   { variable: '{{assistant.id}}', runtimeValue: 'Assistant identifier' },
-  { variable: '{{assistant.language}}', runtimeValue: 'Assistant language' },
   {
     variable: '{{assistant.description}}',
     runtimeValue: 'Assistant description',
@@ -62,15 +61,6 @@ const RAPIDA_RESERVED_RUNTIME_VARIABLES: {
     runtimeValue: 'Conversation created datetime',
   },
   {
-    variable: '{{conversation.updated_date}}',
-    runtimeValue: 'Conversation updated datetime',
-  },
-  {
-    variable: '{{conversation.duration}}',
-    runtimeValue: 'Conversation duration',
-  },
-  { variable: '{{session.mode}}', runtimeValue: 'Session mode' },
-  {
     variable: '{{message.language}}',
     runtimeValue: 'Current message language',
   },
@@ -87,16 +77,12 @@ const RAPIDA_RESERVED_RUNTIME_VARIABLE_KEYS = new Set([
   'system.date_unix_ms',
   'assistant.name',
   'assistant.id',
-  'assistant.language',
   'assistant.description',
   'conversation.id',
   'conversation.identifier',
   'conversation.source',
   'conversation.direction',
   'conversation.created_date',
-  'conversation.updated_date',
-  'conversation.duration',
-  'session.mode',
   'message.language',
   'message.text',
 ]);
@@ -213,26 +199,29 @@ export const ConfigPrompt: FC<IPromptProps> = ({
       <FieldSet>
         <FormLabel>Instruction</FormLabel>
         {showRuntimeReplacementHint && (
-          <div className="border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 px-3 py-2">
+          <div className="border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
             <button
               type="button"
-              className="w-full flex items-center justify-between gap-2 text-left"
+              className="w-full text-left px-4 py-4"
               aria-expanded={showReservedVariables}
               onClick={() => setShowReservedVariables(v => !v)}
             >
-              <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-gray-500 dark:text-gray-400">
-                Rapida Reserved Variables
-              </span>
-              <ChevronDown
-                className={`h-4 w-4 text-gray-500 transition-transform ${showReservedVariables ? 'rotate-180' : ''}`}
-                strokeWidth={1.6}
-              />
+              <div className="w-full flex items-center justify-between gap-2 text-left">
+                <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-gray-500 dark:text-gray-400">
+                  Rapida Reserved Variables
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 text-gray-500 transition-transform ${showReservedVariables ? 'rotate-180' : ''}`}
+                  strokeWidth={1.6}
+                />
+              </div>
+              <InputHelper className="mt-1">
+                These variables are preserved and replaced by Rapida at runtime.
+              </InputHelper>
             </button>
-            <InputHelper className="mt-1">
-              These variables are preserved and replaced by Rapida at runtime.
-            </InputHelper>
+
             {showReservedVariables && (
-              <div className="mt-2 border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950">
+              <div className="mt-2 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950">
                 <div className="grid grid-cols-2 divide-x divide-gray-200 dark:divide-gray-800 bg-gray-100 dark:bg-gray-900">
                   <div className="px-3 py-2 text-[11px] font-semibold tracking-[0.08em] uppercase text-gray-500">
                     Variable

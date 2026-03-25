@@ -260,6 +260,14 @@ func newTestExecutor() *modelAssistantExecutor {
 	}
 }
 
+func historySnapshot(e *modelAssistantExecutor) []*protos.Message {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	out := make([]*protos.Message, len(e.history))
+	copy(out, e.history)
+	return out
+}
+
 func findPacket[T internal_type.Packet](pkts []internal_type.Packet) (T, bool) {
 	for _, p := range pkts {
 		if v, ok := p.(T); ok {
@@ -280,35 +288,16 @@ func findPackets[T internal_type.Packet](pkts []internal_type.Packet) []T {
 	return out
 }
 
-func TestBuildPromptContext_IncludesNamespaces(t *testing.T) {
+func TestBuildAssistantArgumentationContext_IncludesNamespaces(t *testing.T) {
 	e := newTestExecutor()
 	comm, _ := newTestComm()
 	comm.assistant.Id = 123
 	comm.assistant.Name = "Lex"
 	comm.assistant.Language = "en"
 	comm.assistant.Description = "Assistant description"
-	comm.source = utils.PhoneCall
-	comm.mode = type_enums.AudioMode
 	comm.args = map[string]interface{}{"custom_key": "custom_value"}
-	comm.conversation = &internal_conversation_entity.AssistantConversation{
-		Audited: gorm_models.Audited{
-			Id:          999,
-			CreatedDate: gorm_models.TimeWrapper(time.Now().Add(-3 * time.Minute)),
-		},
-		Identifier: "user-42",
-		Source:     utils.PhoneCall,
-		Direction:  type_enums.DIRECTION_INBOUND,
-	}
-	comm.histories = []internal_type.MessagePacket{
-		internal_type.UserTextPacket{Text: "hello"},
-		internal_type.StaticPacket{Text: "hi"},
-	}
 
-	ctxMap := e.buildPromptContext(comm, internal_type.UserTextPacket{
-		ContextID: "ctx-1",
-		Language:  "en-IN",
-		Text:      "hello there",
-	})
+	ctxMap := e.buildAssistantArgumentationContext(comm)
 	system, ok := ctxMap["system"].(map[string]interface{})
 	require.True(t, ok)
 	assert.NotEmpty(t, system["current_date"])
@@ -326,10 +315,29 @@ func TestBuildPromptContext_IncludesNamespaces(t *testing.T) {
 	assert.Equal(t, "en", assistant["language"])
 	assert.Equal(t, "Assistant description", assistant["description"])
 
-	session, ok := ctxMap["session"].(map[string]interface{})
+	message, ok := ctxMap["message"].(map[string]interface{})
 	require.True(t, ok)
-	assert.Equal(t, "audio", session["mode"])
+	assert.Equal(t, "English", message["language"])
 
+	assert.Equal(t, "custom_value", ctxMap["custom_key"])
+	_, hasArgsNamespace := ctxMap["args"]
+	assert.True(t, hasArgsNamespace, "arguments should be available via {{args.*}}")
+}
+
+func TestBuildConversationArgumentationContext_IncludesConversationFields(t *testing.T) {
+	e := newTestExecutor()
+	comm, _ := newTestComm()
+	comm.conversation = &internal_conversation_entity.AssistantConversation{
+		Audited: gorm_models.Audited{
+			Id:          999,
+			CreatedDate: gorm_models.TimeWrapper(time.Now().Add(-3 * time.Minute)),
+		},
+		Identifier: "user-42",
+		Source:     utils.PhoneCall,
+		Direction:  type_enums.DIRECTION_INBOUND,
+	}
+
+	ctxMap := e.buildConversationArgumentationContext(comm)
 	conversation, ok := ctxMap["conversation"].(map[string]interface{})
 	require.True(t, ok)
 	assert.Equal(t, "999", conversation["id"])
@@ -338,40 +346,9 @@ func TestBuildPromptContext_IncludesNamespaces(t *testing.T) {
 	assert.Equal(t, "inbound", conversation["direction"])
 	assert.NotEmpty(t, conversation["created_date"])
 	assert.NotEmpty(t, conversation["duration"])
-
-	message, ok := ctxMap["message"].(map[string]interface{})
-	require.True(t, ok)
-	assert.Equal(t, "en-IN", message["language"])
-	assert.Equal(t, "hello there", message["text"])
-
-	assert.Equal(t, "custom_value", ctxMap["custom_key"])
-	_, hasArgsNamespace := ctxMap["args"]
-	assert.True(t, hasArgsNamespace, "arguments should be available via {{args.*}}")
 }
 
-func TestBuildPromptContext_ArgumentsRemainRootLevel(t *testing.T) {
-	e := newTestExecutor()
-	comm, _ := newTestComm()
-	comm.args = map[string]interface{}{
-		"name": "Prashant",
-		"city": "Singapore",
-	}
-
-	ctxMap := e.buildPromptContext(comm, internal_type.UserTextPacket{
-		ContextID: "ctx-root-args",
-		Text:      "hello",
-		Language:  "en",
-	})
-
-	assert.Equal(t, "Prashant", ctxMap["name"])
-	assert.Equal(t, "Singapore", ctxMap["city"])
-	args, hasArgsNamespace := ctxMap["args"].(map[string]interface{})
-	require.True(t, hasArgsNamespace)
-	assert.Equal(t, "Prashant", args["name"])
-	assert.Equal(t, "Singapore", args["city"])
-}
-
-func TestBuildPromptContext_ModeOmittedWhenNotAvailable(t *testing.T) {
+func TestBuildSessionArgumentationContext_ModeOmittedWhenNotAvailable(t *testing.T) {
 	e := newTestExecutor()
 	comm, _ := newTestComm()
 	noMode := &noModeCommunication{
@@ -383,11 +360,7 @@ func TestBuildPromptContext_ModeOmittedWhenNotAvailable(t *testing.T) {
 		source:       comm.source,
 	}
 
-	ctxMap := e.buildPromptContext(noMode, internal_type.UserTextPacket{
-		ContextID: "ctx-1",
-		Language:  "en",
-		Text:      "hello",
-	})
+	ctxMap := e.buildSessionArgumentationContext(noMode)
 
 	session, ok := ctxMap["session"].(map[string]interface{})
 	require.True(t, ok)
@@ -395,96 +368,248 @@ func TestBuildPromptContext_ModeOmittedWhenNotAvailable(t *testing.T) {
 	assert.False(t, hasMode)
 }
 
-func TestPreparePromptArgumentsForResponse_UsesLatestUserAndClientLanguage(t *testing.T) {
+func TestBuildSessionArgumentationContext_IncludesMode(t *testing.T) {
 	e := newTestExecutor()
 	comm, _ := newTestComm()
-	comm.metadata = map[string]interface{}{"client.language": "es"}
-	comm.histories = []internal_type.MessagePacket{
-		internal_type.UserTextPacket{Text: "old"},
-	}
-	e.mu.Lock()
-	e.history = []*protos.Message{
-		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{Contents: []string{"hi"}}}},
-		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "hola"}}},
-	}
-	e.mu.Unlock()
+	comm.mode = type_enums.AudioMode
 
-	args := e.preparePromptArgumentsForResponse(comm, "ctx-1")
-	message, ok := args["message"].(map[string]interface{})
+	ctxMap := e.buildSessionArgumentationContext(comm)
+
+	session, ok := ctxMap["session"].(map[string]interface{})
 	require.True(t, ok)
-	assert.Equal(t, "hola", message["text"])
-	assert.Equal(t, "es", message["language"])
-}
-
-func TestPreparePromptArgumentsForResponse_NoUserMessage(t *testing.T) {
-	e := newTestExecutor()
-	comm, _ := newTestComm()
-	comm.args = map[string]interface{}{"name": "lex"}
-	e.mu.Lock()
-	e.history = []*protos.Message{
-		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{Contents: []string{"hi"}}}},
-	}
-	e.mu.Unlock()
-
-	args := e.preparePromptArgumentsForResponse(comm, "ctx-2")
-	message, ok := args["message"].(map[string]interface{})
-	require.True(t, ok)
-	assert.Equal(t, "", message["text"])
-	assert.Equal(t, "", message["language"])
-	assert.Equal(t, "lex", args["name"])
-}
-
-func TestPreparePromptArgumentsForResponse_PrefersLatestHistoryLanguage(t *testing.T) {
-	e := newTestExecutor()
-	comm, _ := newTestComm()
-	comm.metadata = map[string]interface{}{"client.language": "es"}
-	comm.histories = []internal_type.MessagePacket{
-		internal_type.SaveMessagePacket{ContextID: "ctx-3", MessageRole: "user", Text: "bonjour", Language: "fr-FR"},
-	}
-	e.mu.Lock()
-	e.history = []*protos.Message{
-		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "bonjour"}}},
-	}
-	e.mu.Unlock()
-
-	args := e.preparePromptArgumentsForResponse(comm, "ctx-3")
-	message, ok := args["message"].(map[string]interface{})
-	require.True(t, ok)
-	assert.Equal(t, "bonjour", message["text"])
-	assert.Equal(t, "fr-FR", message["language"])
+	assert.Equal(t, "audio", session["mode"])
 }
 
 func TestClonePromptArguments_DeepClone(t *testing.T) {
+	e := newTestExecutor()
 	in := map[string]interface{}{
 		"message": map[string]interface{}{
 			"text": "hello",
 		},
 		"name": "a",
 	}
-	cloned := clonePromptArguments(in)
+	cloned := e.clonePromptArguments(in)
 	nested := cloned["message"].(map[string]interface{})
 	nested["text"] = "changed"
 	assert.Equal(t, "hello", in["message"].(map[string]interface{})["text"])
 }
 
-func TestRequestPipeline_DefaultStages(t *testing.T) {
+func TestRequestPipeline_ExecutesAllStages(t *testing.T) {
 	e := newTestExecutor()
-	stages := e.requestPipeline()
-	require.Len(t, stages, 4)
-	assert.Equal(t, "build_user_message", stages[0].Name())
-	assert.Equal(t, "snapshot_history", stages[1].Name())
-	assert.Equal(t, "validate_history", stages[2].Name())
-	assert.Equal(t, "prepare_prompt_arguments", stages[3].Name())
+	stream := newMockStream()
+	e.stream = stream
+	comm, collector := newTestComm()
+
+	err := e.Execute(context.Background(), comm, internal_type.UserTextPacket{
+		ContextID: "ctx-pipeline",
+		Text:      "test",
+		Language:  "en",
+	})
+	require.NoError(t, err)
+
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	assert.Len(t, stream.sendCalls, 1, "send_chat stage should have sent")
+
+	evs := findPackets[internal_type.ConversationEventPacket](collector.all())
+	require.Len(t, evs, 1, "emit_event stage should have emitted")
+	assert.Equal(t, "executing", evs[0].Data["type"])
 }
 
-func TestResponsePipeline_DefaultStages(t *testing.T) {
+func TestResponsePipeline_ExecutesAllStages(t *testing.T) {
 	e := newTestExecutor()
-	stages := e.responsePipeline()
-	require.Len(t, stages, 4)
-	assert.Equal(t, "validate_response", stages[0].Name())
-	assert.Equal(t, "build_response_view", stages[1].Name())
-	assert.Equal(t, "emit_response_upstream", stages[2].Name())
-	assert.Equal(t, "tool_follow_up", stages[3].Name())
+	comm, collector := newTestComm()
+	resp := &protos.ChatResponse{
+		RequestId: "req-stages",
+		Success:   true,
+		Data: &protos.Message{
+			Role: "assistant",
+			Message: &protos.Message_Assistant{
+				Assistant: &protos.AssistantMessage{Contents: []string{"hi"}},
+			},
+		},
+		Metrics: []*protos.Metric{{Name: "tokens", Value: "1"}},
+	}
+	e.executeResponse(context.Background(), comm, resp)
+
+	pkts := collector.all()
+	require.GreaterOrEqual(t, len(pkts), 3, "validate + build + emit stages should produce packets")
+}
+
+func TestPipeline_LocalHistoryPipeline_AppendsHistory(t *testing.T) {
+	e := newTestExecutor()
+	comm, _ := newTestComm()
+
+	err := e.Pipeline(context.Background(), comm, &LocalHistoryPipeline{
+		Message: &protos.Message{Role: "assistant"},
+	})
+	require.NoError(t, err)
+
+	snapshot := historySnapshot(e)
+	require.Len(t, snapshot, 1)
+	assert.Equal(t, "assistant", snapshot[0].Role)
+}
+
+func TestPipeline_LocalHistoryPipeline_NilMessageNoOp(t *testing.T) {
+	e := newTestExecutor()
+	comm, _ := newTestComm()
+
+	err := e.Pipeline(context.Background(), comm, &LocalHistoryPipeline{})
+	require.NoError(t, err)
+	assert.Empty(t, historySnapshot(e))
+}
+
+func TestPipeline_PrepareHistoryPipeline_ChainsToSendAndAppend(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	e.mu.Lock()
+	e.history = []*protos.Message{
+		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "existing"}}},
+	}
+	e.mu.Unlock()
+
+	pipeline := &PrepareHistoryPipeline{
+		InputPipeline: InputPipeline{Packet: internal_type.UserTextPacket{
+			ContextID: "ctx-prepare",
+			Text:      "new input",
+			Language:  "en",
+		}},
+	}
+	err := e.Pipeline(context.Background(), comm, pipeline)
+	require.NoError(t, err)
+
+	stream.mu.Lock()
+	require.Len(t, stream.sendCalls, 1)
+	stream.mu.Unlock()
+
+	snapshot := historySnapshot(e)
+	require.Len(t, snapshot, 2)
+	assert.Equal(t, "existing", snapshot[0].GetUser().GetContent())
+	assert.Equal(t, "new input", snapshot[1].GetUser().GetContent())
+}
+
+func TestPipeline_ArgumentationPipeline_PreparesPromptArgs(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+	comm.args = map[string]interface{}{"name": "lex"}
+	comm.assistant.AssistantProviderModel.Template = gorm_types.PromptMap{
+		"prompt": []map[string]string{
+			{"role": "system", "content": "name={{ name }} msg={{ message.text }} lang={{ message.language }}"},
+		},
+	}
+
+	err := e.Execute(context.Background(), comm, internal_type.UserTextPacket{
+		ContextID: "ctx-arg",
+		Text:      "hello",
+		Language:  "en-IN",
+	})
+	require.NoError(t, err)
+
+	stream.mu.Lock()
+	require.Len(t, stream.sendCalls, 1)
+	require.NotNil(t, stream.sendCalls[0].GetConversations()[0].GetSystem())
+	assert.Equal(t, "name=lex msg=hello lang=en-IN", stream.sendCalls[0].GetConversations()[0].GetSystem().GetContent())
+	stream.mu.Unlock()
+}
+
+func TestPipeline_ArgumentationPipeline_PriorityOverride_AssistantConversationMessageSession(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+	comm.mode = type_enums.AudioMode
+	comm.args = map[string]interface{}{
+		"assistant": map[string]interface{}{
+			"name": "from-args-assistant",
+		},
+		"conversation": map[string]interface{}{
+			"id": "from-args-conversation",
+		},
+		"message": map[string]interface{}{
+			"text":     "from-args-message",
+			"language": "from-args-language",
+		},
+		"session": map[string]interface{}{
+			"mode": "from-args-session",
+		},
+	}
+	comm.conversation = &internal_conversation_entity.AssistantConversation{
+		Audited: gorm_models.Audited{Id: 99},
+	}
+	comm.assistant.Name = "from-assistant-stage"
+	comm.assistant.AssistantProviderModel.Template = gorm_types.PromptMap{
+		"prompt": []map[string]string{
+			{"role": "system", "content": "a={{ assistant.name }} c={{ conversation.id }} m={{ message.text }} l={{ message.language }} s={{ session.mode }}"},
+		},
+	}
+
+	err := e.Execute(context.Background(), comm, internal_type.UserTextPacket{
+		ContextID: "ctx-arg-override",
+		Text:      "hello",
+		Language:  "en-US",
+	})
+	require.NoError(t, err)
+
+	stream.mu.Lock()
+	require.Len(t, stream.sendCalls, 1)
+	require.NotNil(t, stream.sendCalls[0].GetConversations()[0].GetSystem())
+	assert.Equal(t, "a=from-args-assistant c=99 m=hello l=en-US s=audio", stream.sendCalls[0].GetConversations()[0].GetSystem().GetContent())
+	stream.mu.Unlock()
+}
+
+func TestExecute_MessageLanguage_DefaultEnglishFallback(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+	comm.assistant.AssistantProviderModel.Template = gorm_types.PromptMap{
+		"prompt": []map[string]string{
+			{"role": "system", "content": "lang={{ message.language }} text={{ message.text }}"},
+		},
+	}
+
+	err := e.Execute(context.Background(), comm, internal_type.UserTextPacket{
+		ContextID: "ctx-default-language",
+		Text:      "hello",
+		Language:  "",
+	})
+	require.NoError(t, err)
+
+	stream.mu.Lock()
+	require.Len(t, stream.sendCalls, 1)
+	require.NotNil(t, stream.sendCalls[0].GetConversations()[0].GetSystem())
+	assert.Equal(t, "lang=English text=hello", stream.sendCalls[0].GetConversations()[0].GetSystem().GetContent())
+	stream.mu.Unlock()
+}
+
+func TestExecute_MessageLanguage_UsesUserTextPacketLanguage(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+	comm.assistant.AssistantProviderModel.Template = gorm_types.PromptMap{
+		"prompt": []map[string]string{
+			{"role": "system", "content": "lang={{ message.language }} text={{ message.text }}"},
+		},
+	}
+
+	err := e.Execute(context.Background(), comm, internal_type.UserTextPacket{
+		ContextID: "ctx-explicit-language",
+		Text:      "namaste",
+		Language:  "Hindi",
+	})
+	require.NoError(t, err)
+
+	stream.mu.Lock()
+	require.Len(t, stream.sendCalls, 1)
+	require.NotNil(t, stream.sendCalls[0].GetConversations()[0].GetSystem())
+	assert.Equal(t, "lang=Hindi text=namaste", stream.sendCalls[0].GetConversations()[0].GetSystem().GetContent())
+	stream.mu.Unlock()
 }
 
 // =============================================================================
@@ -500,7 +625,7 @@ func TestHandleResponse_Error(t *testing.T) {
 		Success:   false,
 		Error:     &protos.Error{ErrorMessage: "rate limited"},
 	}
-	e.handleResponse(context.Background(), comm, resp)
+	e.executeResponse(context.Background(), comm, resp)
 
 	pkts := collector.all()
 	require.Len(t, pkts, 2)
@@ -525,14 +650,14 @@ func TestHandleResponse_NilOutput(t *testing.T) {
 		Success:   true,
 		Data:      nil,
 	}
-	e.handleResponse(context.Background(), comm, resp)
+	e.executeResponse(context.Background(), comm, resp)
 	assert.Empty(t, collector.all(), "nil output should emit no packets")
 }
 
 func TestHandleResponse_StaleResponse_Dropped(t *testing.T) {
 	e := newTestExecutor()
 	comm, collector := newTestComm()
-	e.activeContextID = "ctx-active"
+	e.currentPacket = internal_type.UserTextPacket{ContextID: "ctx-active"}
 	e.mu.Lock()
 	e.history = append(e.history, &protos.Message{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "q"}}})
 	e.mu.Unlock()
@@ -548,9 +673,9 @@ func TestHandleResponse_StaleResponse_Dropped(t *testing.T) {
 		},
 		Metrics: []*protos.Metric{{Name: "tokens", Value: "1"}},
 	}
-	e.handleResponse(context.Background(), comm, resp)
+	e.executeResponse(context.Background(), comm, resp)
 	assert.Empty(t, collector.all(), "stale response should be ignored")
-	snap := e.snapshotHistory()
+	snap := historySnapshot(e)
 	require.Len(t, snap, 1)
 }
 
@@ -673,7 +798,7 @@ func TestValidateHistorySequence_ValidChain(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestExecuteUserTurn_InvalidHistoryRejectedByPipeline(t *testing.T) {
+func TestExecuteUserTurn_InvalidHistoryIsNotRejectedByPipeline(t *testing.T) {
 	e := newTestExecutor()
 	stream := newMockStream()
 	e.stream = stream
@@ -700,11 +825,10 @@ func TestExecuteUserTurn_InvalidHistoryRejectedByPipeline(t *testing.T) {
 		Text:      "new",
 		Language:  "en",
 	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "immediately followed by tool response")
+	require.NoError(t, err)
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
-	assert.Len(t, stream.sendCalls, 0)
+	assert.Len(t, stream.sendCalls, 1)
 }
 
 func TestHandleResponse_FinalWithoutToolCalls(t *testing.T) {
@@ -724,7 +848,7 @@ func TestHandleResponse_FinalWithoutToolCalls(t *testing.T) {
 		},
 		Metrics: []*protos.Metric{{Name: "tokens", Value: "10"}},
 	}
-	e.handleResponse(context.Background(), comm, resp)
+	e.executeResponse(context.Background(), comm, resp)
 
 	pkts := collector.all()
 	require.Len(t, pkts, 3)
@@ -746,7 +870,7 @@ func TestHandleResponse_FinalWithoutToolCalls(t *testing.T) {
 	assert.Equal(t, "tokens", metric.Metrics[0].Name)
 
 	// Verify history was updated
-	snapshot := e.snapshotHistory()
+	snapshot := historySnapshot(e)
 	require.Len(t, snapshot, 1)
 	assert.Equal(t, "assistant", snapshot[0].Role)
 }
@@ -755,7 +879,7 @@ func TestHandleResponse_FinalWithToolCalls(t *testing.T) {
 	e := newTestExecutor()
 	// Set stream to nil so chatWithHistory (inside executeToolCalls) fails
 	e.stream = nil
-	e.activeContextID = "req-4" // match the response requestId so it's not dropped as stale
+	e.currentPacket = internal_type.UserTextPacket{ContextID: "req-4"} // match the response requestId so it's not dropped as stale
 	toolMsg := &protos.Message{Role: "tool"}
 	e.toolExecutor = &mockToolExecutor{
 		executeFn: func(_ context.Context, _ string, _ []*protos.ToolCall, _ internal_type.Communication) *protos.Message {
@@ -779,7 +903,7 @@ func TestHandleResponse_FinalWithToolCalls(t *testing.T) {
 		},
 		Metrics: []*protos.Metric{{Name: "tokens", Value: "5"}},
 	}
-	e.handleResponse(context.Background(), comm, resp)
+	e.executeResponse(context.Background(), comm, resp)
 
 	pkts := collector.all()
 	// Should have: LLMResponseDonePacket, ConversationEventPacket(completed), MessageMetricPacket, LLMErrorPacket(tool call follow-up failed)
@@ -794,7 +918,7 @@ func TestHandleResponse_FinalWithToolCalls(t *testing.T) {
 	assert.Contains(t, errPkts[0].Error.Error(), "tool call follow-up failed")
 
 	// Verify history: output + toolExecution were appended atomically
-	snapshot := e.snapshotHistory()
+	snapshot := historySnapshot(e)
 	require.Len(t, snapshot, 2, "assistant msg + tool result should be in history")
 }
 
@@ -845,7 +969,7 @@ func TestHandleResponse_ToolFollowUpRetainsUserMessageContext(t *testing.T) {
 		},
 		Metrics: []*protos.Metric{{Name: "tokens", Value: "5"}},
 	}
-	e.handleResponse(context.Background(), comm, resp)
+	e.executeResponse(context.Background(), comm, resp)
 
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
@@ -876,7 +1000,7 @@ func TestHandleResponse_StreamDelta(t *testing.T) {
 		},
 		// No Metrics → streaming delta
 	}
-	e.handleResponse(context.Background(), comm, resp)
+	e.executeResponse(context.Background(), comm, resp)
 
 	pkts := collector.all()
 	require.Len(t, pkts, 2)
@@ -930,12 +1054,12 @@ func TestSnapshotHistory_ReturnsCopy(t *testing.T) {
 	e.history = append(e.history, &protos.Message{Role: "user"})
 	e.mu.Unlock()
 
-	snapshot := e.snapshotHistory()
+	snapshot := historySnapshot(e)
 	require.Len(t, snapshot, 1)
 
 	// Modify snapshot — should not affect original
 	snapshot[0] = &protos.Message{Role: "modified"}
-	original := e.snapshotHistory()
+	original := historySnapshot(e)
 	assert.Equal(t, "user", original[0].Role, "modifying snapshot should not affect original")
 }
 
@@ -960,12 +1084,12 @@ func TestConcurrency_HistoryAndSnapshot(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 100; i++ {
-			_ = e.snapshotHistory()
+			_ = historySnapshot(e)
 		}
 	}()
 
 	wg.Wait()
-	snapshot := e.snapshotHistory()
+	snapshot := historySnapshot(e)
 	assert.Len(t, snapshot, 100, "all messages should be in history")
 }
 
@@ -977,7 +1101,7 @@ func TestHistoryClearedAfterClose(t *testing.T) {
 
 	_ = e.Close(context.Background())
 
-	snapshot := e.snapshotHistory()
+	snapshot := historySnapshot(e)
 	assert.Empty(t, snapshot, "history should be empty after Close")
 }
 
@@ -996,7 +1120,7 @@ func TestExecute_StaticPacket_AppendsHistory(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, collector.all(), "StaticPacket should not emit packets")
 
-	snapshot := e.snapshotHistory()
+	snapshot := historySnapshot(e)
 	require.Len(t, snapshot, 1)
 	assert.Equal(t, "assistant", snapshot[0].Role)
 	assert.Equal(t, []string{"hello"}, snapshot[0].GetAssistant().GetContents())
@@ -1025,19 +1149,27 @@ func TestExecute_UserTextPacket_SendsAndRecordsHistory(t *testing.T) {
 	defer stream.mu.Unlock()
 	require.Len(t, stream.sendCalls, 1)
 
-	snapshot := e.snapshotHistory()
+	snapshot := historySnapshot(e)
 	require.Len(t, snapshot, 1)
 	assert.Equal(t, "user", snapshot[0].Role)
+	currentPacket, ok := e.currentPacket.(internal_type.UserTextPacket)
+	require.True(t, ok)
+	assert.Equal(t, "say hello", currentPacket.Text)
+	assert.Equal(t, "", currentPacket.Language)
 }
 
 func TestExecute_InterruptionPacket(t *testing.T) {
 	e := newTestExecutor()
-	e.activeContextID = "active-ctx"
+	e.currentPacket = internal_type.UserTextPacket{
+		ContextID: "ctx-old",
+		Text:      "old text",
+		Language:  "fr",
+	}
 	comm, _ := newTestComm()
 
 	err := e.Execute(context.Background(), comm, internal_type.InterruptionPacket{ContextID: "x"})
 	require.NoError(t, err)
-	assert.Equal(t, "", e.activeContextID, "activeContextID should be cleared on interrupt")
+	assert.Nil(t, e.currentPacket, "currentPacket should be nil on interrupt")
 }
 
 func TestExecute_UnsupportedPacket(t *testing.T) {
@@ -1058,7 +1190,7 @@ func TestSend_NilStream(t *testing.T) {
 	e.stream = nil
 	comm, _ := newTestComm()
 
-	err := e.chat(context.Background(), comm, "ctx-1", map[string]interface{}{}, &protos.Message{Role: "user"})
+	err := e.chat(context.Background(), comm, internal_type.UserTextPacket{ContextID: "ctx-1"}, map[string]interface{}{}, &protos.Message{Role: "user"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "stream not connected")
 }
@@ -1069,12 +1201,13 @@ func TestSend_Success(t *testing.T) {
 	e.stream = stream
 	comm, _ := newTestComm()
 
-	err := e.chat(context.Background(), comm, "ctx-1", map[string]interface{}{}, &protos.Message{Role: "user"})
+	err := e.chat(context.Background(), comm, internal_type.UserTextPacket{ContextID: "ctx-1"}, map[string]interface{}{}, &protos.Message{Role: "user"})
 	require.NoError(t, err)
 
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
 	require.Len(t, stream.sendCalls, 1)
+	assert.Empty(t, historySnapshot(e), "chat should not append history directly; pipeline stage owns history mutation")
 }
 
 // =============================================================================
@@ -1087,6 +1220,11 @@ func TestClose_ClearsHistoryAndStream(t *testing.T) {
 	e.stream = stream
 	e.mu.Lock()
 	e.history = append(e.history, &protos.Message{Role: "user"})
+	e.currentPacket = internal_type.UserTextPacket{
+		ContextID: "ctx-1",
+		Text:      "hello",
+		Language:  "en",
+	}
 	e.mu.Unlock()
 
 	err := e.Close(context.Background())
@@ -1096,6 +1234,7 @@ func TestClose_ClearsHistoryAndStream(t *testing.T) {
 	defer e.mu.RUnlock()
 	assert.Nil(t, e.stream)
 	assert.Empty(t, e.history)
+	assert.Nil(t, e.currentPacket)
 }
 
 func TestClose_NoPanicNilStream(t *testing.T) {
@@ -1250,7 +1389,7 @@ func TestHandleResponse_EmptyContents(t *testing.T) {
 			},
 		},
 	}
-	e.handleResponse(context.Background(), comm, resp)
+	e.executeResponse(context.Background(), comm, resp)
 	assert.Empty(t, collector.all(), "empty contents should emit no delta")
 }
 
@@ -1341,7 +1480,7 @@ func TestExecute_SendError_HistoryNotModified(t *testing.T) {
 		Text:      "test",
 	})
 	require.Error(t, err)
-	assert.Empty(t, e.snapshotHistory(), "history must not be modified when send fails")
+	assert.Empty(t, historySnapshot(e), "history must not be modified when send fails")
 }
 
 // =============================================================================
