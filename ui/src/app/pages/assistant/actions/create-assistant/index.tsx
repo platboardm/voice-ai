@@ -465,9 +465,18 @@ export function CreateAssistantPage() {
                   {/* Prompt template section */}
                   <div className="flex flex-col gap-6">
                     <SectionDivider label="Prompt Template" />
+                    <DocNoticeBlock
+                      docUrl="https://doc.rapida.ai/assistants/prompt-templating"
+                      tone="blue"
+                    >
+                      Prompt variables and system arguments are resolved at
+                      runtime. Read the prompt templating guide before
+                      finalizing your instruction.
+                    </DocNoticeBlock>
                     <ConfigPrompt
                       instanceId={randomString(10)}
                       existingPrompt={template}
+                      showRuntimeReplacementHint
                       onChange={prompt => setTemplate(prompt)}
                     />
                   </div>

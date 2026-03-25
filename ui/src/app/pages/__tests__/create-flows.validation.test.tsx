@@ -13,6 +13,7 @@ let mockParams: Record<string, string | undefined> = {};
 const mockNavigate = jest.fn();
 const mockShowLoader = jest.fn();
 const mockHideLoader = jest.fn();
+const mockConfigPrompt = jest.fn();
 
 jest.mock('@rapidaai/react', () => {
   class ConnectionConfig {
@@ -143,6 +144,7 @@ jest.mock('@/app/components/form/tab-form', () => ({
       <div>
         <h1>{formHeading}</h1>
         {errorMessage ? <div>{errorMessage}</div> : null}
+        <div>{active.body}</div>
         <div>{active.actions}</div>
       </div>
     );
@@ -156,7 +158,10 @@ jest.mock('@/app/components/providers/text', () => ({
 }));
 
 jest.mock('@/app/components/configuration/config-prompt', () => ({
-  ConfigPrompt: () => null,
+  ConfigPrompt: (props: any) => {
+    mockConfigPrompt(props);
+    return null;
+  },
 }));
 
 jest.mock('@/app/components/tools', () => ({
@@ -235,6 +240,7 @@ describe('Requested create/update flow pages', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockParams = {};
+    mockConfigPrompt.mockClear();
   });
 
   it('forgot password shows success message on success callback', async () => {
@@ -269,11 +275,20 @@ describe('Requested create/update flow pages', () => {
 
   it('create assistant blocks continue when prompt content is empty', () => {
     render(<CreateAssistantPage />);
+    const assistantConfigPrompt = mockConfigPrompt.mock.calls[0]?.[0];
+    expect(assistantConfigPrompt.showRuntimeReplacementHint).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(
       screen.getByText('Each prompt message must have a valid role and non-empty content.'),
     ).toBeInTheDocument();
   });
+
+  it('create endpoint does not attach assistant runtime argument hints', () => {
+    render(<CreateEndpointPage />);
+    const endpointConfigPrompt = mockConfigPrompt.mock.calls[0]?.[0];
+    expect(endpointConfigPrompt.showRuntimeReplacementHint).toBeUndefined();
+  });
+
 
   it('create assistant version shows unavailable state when assistantId is missing', () => {
     mockParams = {};

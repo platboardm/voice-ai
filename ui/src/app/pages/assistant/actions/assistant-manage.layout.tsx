@@ -41,7 +41,12 @@ export const AssistantManageLayout: FC<HTMLAttributes<HTMLDivElement>> = () => {
             Webhooks
           </TabLink>
           <TabLink to={`/deployment/assistant/${assistantId}/configure-telemetry`}>
-            Telemetry
+            <span className="inline-flex items-center gap-1.5">
+              <span>Telemetry</span>
+              <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-blue-700 dark:text-blue-300 border border-blue-300/70 dark:border-blue-700/70">
+                Experimental
+              </span>
+            </span>
           </TabLink>
           <TabLink to={`/deployment/assistant/${assistantId}/edit-assistant`}>
             Settings

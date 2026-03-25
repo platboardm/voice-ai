@@ -1,4 +1,4 @@
-import { FC, useCallback } from 'react';
+import { FC, useCallback, useState } from 'react';
 import { PromptRole } from '@/models/prompt';
 import AdvancedMessageInput from '@/app/components/configuration/config-prompt/advanced-prompt-input';
 import {
@@ -6,18 +6,111 @@ import {
   SUPPORTED_PROMPT_VARIABLE_TYPE,
 } from '@/configs';
 import { IBlueBorderButton } from '@/app/components/form/button';
-import { Plus } from 'lucide-react';
+import { ChevronDown, Plus } from 'lucide-react';
 import { FormLabel } from '@/app/components/form-label';
 import { FieldSet } from '@/app/components/form/fieldset';
 import { ScalableTextarea } from '@/app/components/form/textarea';
 import { getNewVar, getVars } from '@/utils/var';
 import { TypeOfVariable } from '@/app/components/configuration/config-prompt/type-of-variable';
+import { InputHelper } from '@/app/components/input-helper';
+
+const RAPIDA_RESERVED_RUNTIME_VARIABLES: {
+  variable: string;
+  runtimeValue: string;
+}[] = [
+  {
+    variable: '{{system.current_date}}',
+    runtimeValue: 'UTC date (YYYY-MM-DD)',
+  },
+  { variable: '{{system.current_time}}', runtimeValue: 'UTC time (HH:MM:SS)' },
+  {
+    variable: '{{system.current_datetime}}',
+    runtimeValue: 'UTC datetime (RFC3339)',
+  },
+  { variable: '{{system.day_of_week}}', runtimeValue: 'UTC weekday name' },
+  {
+    variable: '{{system.date_rfc1123}}',
+    runtimeValue: 'UTC RFC1123 date string',
+  },
+  {
+    variable: '{{system.date_unix}}',
+    runtimeValue: 'UTC Unix timestamp (seconds)',
+  },
+  {
+    variable: '{{system.date_unix_ms}}',
+    runtimeValue: 'UTC Unix timestamp (milliseconds)',
+  },
+  { variable: '{{assistant.name}}', runtimeValue: 'Assistant name' },
+  { variable: '{{assistant.id}}', runtimeValue: 'Assistant identifier' },
+  { variable: '{{assistant.language}}', runtimeValue: 'Assistant language' },
+  {
+    variable: '{{assistant.description}}',
+    runtimeValue: 'Assistant description',
+  },
+  { variable: '{{conversation.id}}', runtimeValue: 'Conversation ID' },
+  {
+    variable: '{{conversation.identifier}}',
+    runtimeValue: 'Conversation identifier',
+  },
+  { variable: '{{conversation.source}}', runtimeValue: 'Conversation source' },
+  {
+    variable: '{{conversation.direction}}',
+    runtimeValue: 'Conversation direction',
+  },
+  {
+    variable: '{{conversation.created_date}}',
+    runtimeValue: 'Conversation created datetime',
+  },
+  {
+    variable: '{{conversation.updated_date}}',
+    runtimeValue: 'Conversation updated datetime',
+  },
+  {
+    variable: '{{conversation.duration}}',
+    runtimeValue: 'Conversation duration',
+  },
+  { variable: '{{session.mode}}', runtimeValue: 'Session mode' },
+  {
+    variable: '{{message.language}}',
+    runtimeValue: 'Current message language',
+  },
+  { variable: '{{message.text}}', runtimeValue: 'Current message text' },
+];
+
+const RAPIDA_RESERVED_RUNTIME_VARIABLE_KEYS = new Set([
+  'system.current_date',
+  'system.current_time',
+  'system.current_datetime',
+  'system.day_of_week',
+  'system.date_rfc1123',
+  'system.date_unix',
+  'system.date_unix_ms',
+  'assistant.name',
+  'assistant.id',
+  'assistant.language',
+  'assistant.description',
+  'conversation.id',
+  'conversation.identifier',
+  'conversation.source',
+  'conversation.direction',
+  'conversation.created_date',
+  'conversation.updated_date',
+  'conversation.duration',
+  'session.mode',
+  'message.language',
+  'message.text',
+]);
+
+const isRapidaReservedRuntimeVariable = (variableName: string): boolean =>
+  RAPIDA_RESERVED_RUNTIME_VARIABLE_KEYS.has(variableName) ||
+  variableName.startsWith('args.');
 export type IPromptProps = {
   existingPrompt: {
     prompt: { role: string; content: string }[];
     variables: { name: string; type: string; defaultvalue: string }[];
   };
   instanceId?: string;
+  showRuntimeReplacementHint?: boolean;
   onChange: (prompt: {
     prompt: { role: string; content: string }[];
     variables: { name: string; type: string; defaultvalue: string }[];
@@ -28,7 +121,10 @@ export const ConfigPrompt: FC<IPromptProps> = ({
   existingPrompt,
   onChange,
   instanceId,
+  showRuntimeReplacementHint = false,
 }) => {
+  const [showReservedVariables, setShowReservedVariables] = useState(false);
+
   const handlePromptChange = useCallback(
     (newPrompt: typeof existingPrompt.prompt) => {
       onChange({
@@ -116,6 +212,56 @@ export const ConfigPrompt: FC<IPromptProps> = ({
     <>
       <FieldSet>
         <FormLabel>Instruction</FormLabel>
+        {showRuntimeReplacementHint && (
+          <div className="border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 px-3 py-2">
+            <button
+              type="button"
+              className="w-full flex items-center justify-between gap-2 text-left"
+              aria-expanded={showReservedVariables}
+              onClick={() => setShowReservedVariables(v => !v)}
+            >
+              <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-gray-500 dark:text-gray-400">
+                Rapida Reserved Variables
+              </span>
+              <ChevronDown
+                className={`h-4 w-4 text-gray-500 transition-transform ${showReservedVariables ? 'rotate-180' : ''}`}
+                strokeWidth={1.6}
+              />
+            </button>
+            <InputHelper className="mt-1">
+              These variables are preserved and replaced by Rapida at runtime.
+            </InputHelper>
+            {showReservedVariables && (
+              <div className="mt-2 border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950">
+                <div className="grid grid-cols-2 divide-x divide-gray-200 dark:divide-gray-800 bg-gray-100 dark:bg-gray-900">
+                  <div className="px-3 py-2 text-[11px] font-semibold tracking-[0.08em] uppercase text-gray-500">
+                    Variable
+                  </div>
+                  <div className="px-3 py-2 text-[11px] font-semibold tracking-[0.08em] uppercase text-gray-500">
+                    Runtime value
+                  </div>
+                </div>
+                <div className="divide-y divide-gray-200 dark:divide-gray-800">
+                  {RAPIDA_RESERVED_RUNTIME_VARIABLES.map(item => (
+                    <div
+                      key={item.variable}
+                      className="grid grid-cols-2 divide-x divide-gray-200 dark:divide-gray-800"
+                    >
+                      <div className="px-3 py-2">
+                        <code className="text-xs text-gray-700 dark:text-gray-200">
+                          {item.variable}
+                        </code>
+                      </div>
+                      <div className="px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
+                        {item.runtimeValue}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <div className="space-y-2">
           {existingPrompt.prompt.map((item, index) => (
             <AdvancedMessageInput
@@ -131,10 +277,7 @@ export const ConfigPrompt: FC<IPromptProps> = ({
             />
           ))}
           {existingPrompt.prompt.length < MAX_PROMPT_MESSAGE_LENGTH && (
-            <IBlueBorderButton
-              onClick={handleAddMessage}
-              className="w-full"
-            >
+            <IBlueBorderButton onClick={handleAddMessage} className="w-full">
               <Plus className="h-4 w-4" />
               Add new message
             </IBlueBorderButton>
@@ -142,7 +285,7 @@ export const ConfigPrompt: FC<IPromptProps> = ({
         </div>
       </FieldSet>
 
-      {existingPrompt.variables.length > 0 && (
+      {(showRuntimeReplacementHint || existingPrompt.variables.length > 0) && (
         <FieldSet>
           <div className="flex items-center gap-2">
             <FormLabel>Arguments</FormLabel>
@@ -150,17 +293,38 @@ export const ConfigPrompt: FC<IPromptProps> = ({
               {existingPrompt.variables.length}
             </span>
           </div>
+          {showRuntimeReplacementHint && (
+            <InputHelper className="mb-2">
+              Add only your template-specific variables here. Rapida reserved
+              variables are preserved and replaced at runtime.
+            </InputHelper>
+          )}
           <div className="text-sm grid bg-light-background dark:bg-gray-950 w-full border border-gray-300 dark:border-gray-700 divide-y divide-gray-300 dark:divide-gray-700">
             {/* Carbon table header row */}
             <div className="grid grid-cols-3 divide-x divide-gray-300 dark:divide-gray-700 bg-gray-50 dark:bg-gray-900">
-              <div className="px-4 py-2 text-xs font-semibold tracking-[0.08em] uppercase text-gray-500 dark:text-gray-500">Variable</div>
-              <div className="px-4 py-2 text-xs font-semibold tracking-[0.08em] uppercase text-gray-500 dark:text-gray-500">Type</div>
-              <div className="px-4 py-2 text-xs font-semibold tracking-[0.08em] uppercase text-gray-500 dark:text-gray-500">Default value</div>
+              <div className="px-4 py-2 text-xs font-semibold tracking-[0.08em] uppercase text-gray-500 dark:text-gray-500">
+                Variable
+              </div>
+              <div className="px-4 py-2 text-xs font-semibold tracking-[0.08em] uppercase text-gray-500 dark:text-gray-500">
+                Type
+              </div>
+              <div className="px-4 py-2 text-xs font-semibold tracking-[0.08em] uppercase text-gray-500 dark:text-gray-500">
+                Default value
+              </div>
             </div>
             {existingPrompt.variables.map((v, idx) => (
-              <div key={idx} className="grid grid-cols-3 divide-x divide-gray-300 dark:divide-gray-700">
-                <div className="flex col-span-1 items-center px-4 py-2.5 text-sm text-gray-800 dark:text-gray-200 font-medium">
+              <div
+                key={idx}
+                className="grid grid-cols-3 divide-x divide-gray-300 dark:divide-gray-700"
+              >
+                <div className="flex col-span-1 items-center gap-2 px-4 py-2.5 text-sm text-gray-800 dark:text-gray-200 font-medium">
                   {v.name}
+                  {showRuntimeReplacementHint &&
+                    isRapidaReservedRuntimeVariable(v.name) && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-blue-700 dark:text-blue-300 border border-blue-300/70 dark:border-blue-700/70">
+                        Reserved
+                      </span>
+                    )}
                 </div>
                 <TypeOfVariable
                   allType={SUPPORTED_PROMPT_VARIABLE_TYPE()}
@@ -183,6 +347,13 @@ export const ConfigPrompt: FC<IPromptProps> = ({
                 </div>
               </div>
             ))}
+            {existingPrompt.variables.length === 0 && (
+              <div className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
+                No template-specific variables yet. Add placeholders like{' '}
+                <code>{'{{customer_name}}'}</code> in instruction messages to
+                populate this list.
+              </div>
+            )}
           </div>
         </FieldSet>
       )}
