@@ -20,6 +20,7 @@ import { IButton } from '@/app/components/form/button';
 import { useCurrentCredential } from '@/hooks/use-credential';
 import { cn } from '@/utils';
 import { TablePagination } from '@/app/components/base/tables/table-pagination';
+import { Spinner } from '@/app/components/loader/spinner';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,18 +60,18 @@ type TelemetryRow =
 // ---------------------------------------------------------------------------
 
 const EVENT_COLORS: Record<string, string> = {
-  session:   'text-gray-500 dark:text-gray-400',
-  stt:       'text-green-600 dark:text-green-400',
-  llm:       'text-blue-600 dark:text-blue-400',
-  tts:       'text-violet-600 dark:text-violet-400',
-  vad:       'text-yellow-600 dark:text-yellow-400',
-  eos:       'text-cyan-600 dark:text-cyan-400',
-  denoise:   'text-orange-600 dark:text-orange-400',
-  audio:     'text-slate-600 dark:text-slate-400',
-  tool:      'text-pink-600 dark:text-pink-400',
-  behavior:  'text-rose-600 dark:text-rose-400',
+  session: 'text-gray-500 dark:text-gray-400',
+  stt: 'text-green-600 dark:text-green-400',
+  llm: 'text-blue-600 dark:text-blue-400',
+  tts: 'text-violet-600 dark:text-violet-400',
+  vad: 'text-yellow-600 dark:text-yellow-400',
+  eos: 'text-cyan-600 dark:text-cyan-400',
+  denoise: 'text-orange-600 dark:text-orange-400',
+  audio: 'text-slate-600 dark:text-slate-400',
+  tool: 'text-pink-600 dark:text-pink-400',
+  behavior: 'text-rose-600 dark:text-rose-400',
   knowledge: 'text-teal-600 dark:text-teal-400',
-  metric:    'text-indigo-600 dark:text-indigo-400',
+  metric: 'text-indigo-600 dark:text-indigo-400',
 };
 
 // ---------------------------------------------------------------------------
@@ -86,10 +87,12 @@ function formatDateTime(d: Date): string {
 }
 
 function eventToJson(event: TelemetryEvent): object {
-  const data = Object.fromEntries(event.getDataMap().toArray() as [string, string][]);
+  const data = Object.fromEntries(
+    event.getDataMap().toArray() as [string, string][],
+  );
   return {
-    name:           event.getName(),
-    messageId:      event.getMessageid(),
+    name: event.getName(),
+    messageId: event.getMessageid(),
     conversationId: event.getAssistantconversationid(),
     data,
   };
@@ -97,10 +100,12 @@ function eventToJson(event: TelemetryEvent): object {
 
 function metricToJson(metric: TelemetryMetric): object {
   return {
-    scope:          metric.getScope(),
-    contextId:      metric.getContextid(),
+    scope: metric.getScope(),
+    contextId: metric.getContextid(),
     conversationId: metric.getAssistantconversationid(),
-    metrics:        metric.getMetricsList().map(m => ({ name: m.getName(), value: m.getValue() })),
+    metrics: metric
+      .getMetricsList()
+      .map(m => ({ name: m.getName(), value: m.getValue() })),
   };
 }
 
@@ -135,7 +140,7 @@ function TelemetryRowItem({
   }
 
   const jsonPreview = JSON.stringify(json);
-  const jsonFull    = JSON.stringify(json, null, 2);
+  const jsonFull = JSON.stringify(json, null, 2);
 
   return (
     <>
@@ -148,7 +153,12 @@ function TelemetryRowItem({
           {dt}
         </td>
         {/* event type */}
-        <td className={cn('px-2 py-1.5 whitespace-nowrap font-semibold text-xs border-r border-gray-200 dark:border-gray-800/60', typeColor)}>
+        <td
+          className={cn(
+            'px-2 py-1.5 whitespace-nowrap font-semibold text-xs border-r border-gray-200 dark:border-gray-800/60',
+            typeColor,
+          )}
+        >
           {typeLabel}
         </td>
         {/* json preview */}
@@ -184,6 +194,8 @@ export function ConversationTelemetryDialog(
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [totalItem, setTotalItem] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [criteriaReady, setCriteriaReady] = useState(false);
 
   useEffect(() => {
     const initialChips = (props.criterias || []).map((criteria, index) => ({
@@ -191,10 +203,22 @@ export function ConversationTelemetryDialog(
       value: criteria.getValue(),
       id: `${Date.now()}-${index}`,
     }));
+    setRows([]);
+    setExpandedKey(null);
+    setTotalItem(0);
+    setPage(1);
     setChips(initialChips);
+    setCriteriaReady(true);
   }, [props.criterias]);
 
   useEffect(() => {
+    if (!criteriaReady) return;
+
+    let active = true;
+    setIsLoading(true);
+    setRows([]);
+    setExpandedKey(null);
+
     const request = new GetAllAssistantTelemetryRequest();
     const paginate = new Paginate();
     paginate.setPage(page);
@@ -222,30 +246,51 @@ export function ConversationTelemetryDialog(
         userId: authId,
         projectId: projectId,
       }),
-    ).then(response => {
-      if (response.getPaginated()?.getTotalitem()) {
-        setTotalItem(response.getPaginated()?.getTotalitem()!);
-      }
+    )
+      .then(response => {
+        if (!active) return;
+        setTotalItem(response.getPaginated()?.getTotalitem() ?? 0);
 
-      const merged: TelemetryRow[] = [];
-      response.getDataList().forEach((r, i) => {
-        const e = r.getEvent();
-        const m = r.getMetric();
-        if (e) {
-          const ts = e.getTime()?.toDate() ?? new Date(0);
-          merged.push({ kind: 'event', ts, key: `e-${i}`, record: e });
-        } else if (m) {
-          const ts = m.getTime()?.toDate() ?? new Date(0);
-          merged.push({ kind: 'metric', ts, key: `m-${i}`, record: m });
-        }
+        const merged: TelemetryRow[] = [];
+        response.getDataList().forEach((r, i) => {
+          const e = r.getEvent();
+          const m = r.getMetric();
+          if (e) {
+            const ts = e.getTime()?.toDate() ?? new Date(0);
+            merged.push({ kind: 'event', ts, key: `e-${i}`, record: e });
+          } else if (m) {
+            const ts = m.getTime()?.toDate() ?? new Date(0);
+            merged.push({ kind: 'metric', ts, key: `m-${i}`, record: m });
+          }
+        });
+
+        // sort chronologically (oldest first)
+        merged.sort((a, b) => a.ts.getTime() - b.ts.getTime());
+        setRows(merged);
+      })
+      .catch(() => {
+        if (!active) return;
+        setRows([]);
+        setTotalItem(0);
+      })
+      .finally(() => {
+        if (!active) return;
+        setIsLoading(false);
       });
 
-      // sort chronologically (oldest first)
-      merged.sort((a, b) => a.ts.getTime() - b.ts.getTime());
-      setRows(merged);
-      setExpandedKey(null);
-    });
-  }, [token, authId, projectId, props.assistantId, JSON.stringify(chips), pageSize, page]);
+    return () => {
+      active = false;
+    };
+  }, [
+    token,
+    authId,
+    projectId,
+    props.assistantId,
+    JSON.stringify(chips),
+    pageSize,
+    page,
+    criteriaReady,
+  ]);
 
   const toggleRow = (key: string) => {
     setExpandedKey(prev => (prev === key ? null : key));
@@ -285,16 +330,20 @@ export function ConversationTelemetryDialog(
 
         {/* Scrollable body */}
         <div className="flex-1 min-h-0 overflow-y-auto py-1">
-          {rows.length === 0 ? (
+          {isLoading ? (
+            <div className="flex items-center justify-center h-full">
+              <Spinner size="md" />
+            </div>
+          ) : rows.length === 0 ? (
             <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-500 text-sm/6 font-mono">
               No telemetry yet…
             </div>
           ) : (
             <table className="w-full table-fixed font-mono text-sm border-collapse">
               <colgroup>
-                <col className="w-[15rem]" />  {/* date + time */}
-                <col className="w-[12rem]" />  {/* event type */}
-                <col />                        {/* json — fills rest */}
+                <col className="w-[15rem]" /> {/* date + time */}
+                <col className="w-[12rem]" /> {/* event type */}
+                <col /> {/* json — fills rest */}
               </colgroup>
               <tbody>
                 {rows.map(row => (
@@ -379,10 +428,16 @@ export function SentrySearch({
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
         setShowFieldDropdown(false);
       }
-      if (stageDropdownRef.current && !stageDropdownRef.current.contains(event.target as Node)) {
+      if (
+        stageDropdownRef.current &&
+        !stageDropdownRef.current.contains(event.target as Node)
+      ) {
         setShowStageDropdown(false);
       }
     }
@@ -407,7 +462,11 @@ export function SentrySearch({
 
   const handleValueSubmit = (value: string = inputValue) => {
     if (selectedField && value.trim()) {
-      const newChip = { field: selectedField.id, value: value.trim(), id: `${Date.now()}` };
+      const newChip = {
+        field: selectedField.id,
+        value: value.trim(),
+        id: `${Date.now()}`,
+      };
       const newChips = [...chips, newChip];
       setChips(newChips);
       updateChips(newChips);
@@ -463,7 +522,9 @@ export function SentrySearch({
               className="inline-flex items-center gap-2 px-2.5 py-1 rounded-[2px] text-sm border dark:border-gray-900 bg-blue-600/10"
               onClick={e => e.stopPropagation()}
             >
-              <span className="font-medium opacity-90 text-blue-600">{chip.field}:</span>
+              <span className="font-medium opacity-90 text-blue-600">
+                {chip.field}:
+              </span>
               <span className="text-blue-600">{chip.value}</span>
               <button
                 onClick={() => removeChip(chip.id)}
@@ -479,7 +540,9 @@ export function SentrySearch({
               className="inline-flex items-center gap-2 px-2.5 py-1 rounded-[2px] text-sm border"
               onClick={e => e.stopPropagation()}
             >
-              <span className="font-medium opacity-90">{selectedField.label}:</span>
+              <span className="font-medium opacity-90">
+                {selectedField.label}:
+              </span>
               <input
                 ref={inputRef}
                 type={selectedField.type === 'number' ? 'number' : 'text'}
@@ -488,7 +551,10 @@ export function SentrySearch({
                 onKeyDown={handleKeyPress}
                 onBlur={() => {
                   if (inputValue.trim()) handleValueSubmit();
-                  else { setShowValueInput(false); setSelectedField(null); }
+                  else {
+                    setShowValueInput(false);
+                    setSelectedField(null);
+                  }
                 }}
                 placeholder={selectedField.placeholder}
                 className="bg-transparent outline-hidden w-48"
@@ -508,7 +574,9 @@ export function SentrySearch({
           className="absolute left-0 right-0 mt-2 bg-white dark:bg-gray-950 border divide-y dark:divide-gray-900 rounded-[2px] shadow-lg z-999"
         >
           <div className="px-3 py-2 bg-gray-100 dark:bg-gray-900">
-            <span className="text-xs font-medium text-gray-500">SELECT FIELD</span>
+            <span className="text-xs font-medium text-gray-500">
+              SELECT FIELD
+            </span>
           </div>
           {searchFields.map(field => (
             <button
@@ -516,7 +584,9 @@ export function SentrySearch({
               onClick={() => handleFieldSelect(field)}
               className="w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center justify-between group"
             >
-              <span className="font-medium group-hover:text-blue-700">{field.label}</span>
+              <span className="font-medium group-hover:text-blue-700">
+                {field.label}
+              </span>
               <span className="text-xs group-hover:text-blue-500">
                 {field.type === 'select' ? 'select' : field.type}
               </span>

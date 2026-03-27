@@ -197,13 +197,15 @@ func (llc *largeLanguageCaller) getContentConfig(opts *internal_callers.ChatComp
 			if topK, err := utils.AnyToFloat32(value); err == nil {
 				config.TopK = utils.Ptr(topK)
 			}
-		case "model.max_completion_tokens":
+		case "model.max_output_tokens":
 			if maxTokens, err := utils.AnyToInt64(value); err == nil {
 				config.MaxOutputTokens = int32(maxTokens)
 			}
-		case "model.stop":
+		case "model.stop_sequences":
 			if stopStr, err := utils.AnyToString(value); err == nil {
-				config.StopSequences = strings.Split(stopStr, ",")
+				if strings.TrimSpace(stopStr) != "" {
+					config.StopSequences = strings.Split(stopStr, ",")
+				}
 			}
 		case "model.frequency_penalty":
 			if fp, err := utils.AnyToFloat32(value); err == nil {
@@ -216,6 +218,13 @@ func (llc *largeLanguageCaller) getContentConfig(opts *internal_callers.ChatComp
 		case "model.seed":
 			if seed, err := utils.AnyToInt32(value); err == nil {
 				config.Seed = utils.Ptr(seed)
+			}
+		case "model.thinking_budget":
+			if thinkingBudget, err := utils.AnyToInt32(value); err == nil {
+				if config.ThinkingConfig == nil {
+					config.ThinkingConfig = &genai.ThinkingConfig{}
+				}
+				config.ThinkingConfig.ThinkingBudget = utils.Ptr(thinkingBudget)
 			}
 		case "model.response_format":
 			if format, err := utils.AnyToJSON(value); err == nil {
