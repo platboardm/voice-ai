@@ -77,6 +77,12 @@ func (s InteractionState) String() string {
 	}
 }
 
+// packetEnvelope carries a packet together with the context it was sent from.
+type packetEnvelope struct {
+	ctx context.Context
+	pkt internal_type.Packet
+}
+
 type genericRequestor struct {
 	logger   commons.Logger
 	config   *config.AssistantConfig
@@ -202,28 +208,16 @@ func NewGenericRequestor(
 		options:   make(map[string]interface{}),
 
 		// dispatcher channels
-		criticalCh: make(chan packetEnvelope, 16),
+		criticalCh: make(chan packetEnvelope, 256),
 		inputCh:    make(chan packetEnvelope, 4096),
 		outputCh:   make(chan packetEnvelope, 2048),
-		lowCh:      make(chan packetEnvelope, 512),
+		lowCh:      make(chan packetEnvelope, 2048),
 	}
 }
 
 // GetSource implements internal_adapter_requests.Messaging.
 func (dm *genericRequestor) Source() utils.RapidaSource {
 	return dm.source
-}
-
-func (deb *genericRequestor) onCreateMessage(ctx context.Context, msg internal_type.MessagePacket) error {
-	deb.histories = append(deb.histories, msg)
-	dbCtx, cancel := context.WithTimeout(context.Background(), dbWriteTimeout)
-	defer cancel()
-	_, err := deb.conversationService.CreateConversationMessage(dbCtx, deb.Auth(), deb.Source(), deb.Assistant().Id, deb.Assistant().AssistantProviderId, deb.Conversation().Id, msg.ContextId(), msg.Role(), msg.Content())
-	if err != nil {
-		deb.logger.Error("unable to create message for the user")
-		return err
-	}
-	return nil
 }
 
 func (gr *genericRequestor) GetAssistantConversation(ctx context.Context, auth types.SimplePrinciple, assistantId uint64, assistantConversationId uint64) (*internal_conversation_entity.AssistantConversation, error) {
@@ -234,17 +228,6 @@ func (gr *genericRequestor) GetAssistantConversation(ctx context.Context, auth t
 		InjectOption:   true,
 		InjectMetric:   false},
 	)
-}
-
-func (r *genericRequestor) identifier(config *protos.ConversationInitialization) string {
-	switch identity := config.GetUserIdentity().(type) {
-	case *protos.ConversationInitialization_Phone:
-		return identity.Phone.GetPhoneNumber()
-	case *protos.ConversationInitialization_Web:
-		return identity.Web.GetUserId()
-	default:
-		return uuid.NewString()
-	}
 }
 
 func (talking *genericRequestor) BeginConversation(ctx context.Context, assistant *internal_assistant_entity.Assistant, direction type_enums.ConversationDirection, config *protos.ConversationInitialization) (*internal_conversation_entity.AssistantConversation, error) {
@@ -392,13 +375,19 @@ func (r *genericRequestor) Transition(newState InteractionState) error {
 		if r.interactionState == Interrupted {
 			return fmt.Errorf("Transition: already interrupted")
 		}
+		oldCtxID := r.contextID // read directly — we already hold msgMu
 		nCtxID := uuid.NewString()
-		// r.OnPacket(context.Background(), internal_type.ConversationEventPacket{
-		// 	Name: "behavior",
-		// 	Data: map[string]string{"type": "eos", "turn_change": r.GetID(), "new": nCtxID},
-		// 	Time: time.Now(),
-		// })
 		r.contextID = nCtxID
+		// Emit turn-change event asynchronously to avoid holding msgMu while
+		// enqueuing into a dispatcher channel (which could stall if the channel
+		// is near capacity and the consumer goroutine is also waiting on msgMu).
+		utils.Go(context.Background(), func() {
+			r.OnPacket(context.Background(), internal_type.ConversationEventPacket{
+				Name: "behavior",
+				Data: map[string]string{"type": "eos", "turn_change": oldCtxID, "new": nCtxID},
+				Time: time.Now(),
+			})
+		})
 	}
 	r.interactionState = newState
 	return nil

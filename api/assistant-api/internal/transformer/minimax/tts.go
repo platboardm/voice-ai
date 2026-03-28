@@ -163,7 +163,7 @@ func (t *minimaxTTS) streamHTTPTTS(text string, ctxId string) {
 				}
 				t.mu.Unlock()
 				if !metricSent && !startedAt.IsZero() {
-					t.onPacket(internal_type.MessageMetricPacket{
+					t.onPacket(internal_type.AssistantMessageMetricPacket{
 						ContextID: ctxId,
 						Metrics: []*protos.Metric{{
 							Name:  "tts_latency_ms",
@@ -200,7 +200,7 @@ func (t *minimaxTTS) Transform(ctx context.Context, in internal_type.LLMPacket) 
 	t.mu.Unlock()
 
 	switch input := in.(type) {
-	case internal_type.InterruptionPacket:
+	case internal_type.InterruptionDetectedPacket:
 		if currentCtx != "" {
 			t.mu.Lock()
 			t.ttsStartedAt = time.Time{}

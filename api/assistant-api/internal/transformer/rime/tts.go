@@ -168,7 +168,7 @@ func (rt *rimeTTS) handleAudio(response rime_internal.RimeTextToSpeechResponse) 
 	}
 
 	if !metricSent && !startedAt.IsZero() {
-		rt.onPacket(internal_type.MessageMetricPacket{
+		rt.onPacket(internal_type.AssistantMessageMetricPacket{
 			ContextID: contextId,
 			Metrics: []*protos.Metric{{
 				Name:  "tts_latency_ms",
@@ -226,7 +226,7 @@ func (rt *rimeTTS) Transform(ctx context.Context, in internal_type.LLMPacket) er
 	rt.mu.Unlock()
 
 	switch input := in.(type) {
-	case internal_type.InterruptionPacket:
+	case internal_type.InterruptionDetectedPacket:
 		// Close the current connection so any in-flight Rime audio is discarded.
 		// The old readLoop goroutine will exit. Reconnect now so the fresh
 		// connection is ready before the next text delta arrives.

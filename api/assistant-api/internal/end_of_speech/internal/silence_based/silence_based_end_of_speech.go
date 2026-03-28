@@ -100,7 +100,7 @@ func (eos *SilenceBasedEOS) Name() string {
 // Analyze processes incoming speech packets
 func (eos *SilenceBasedEOS) Analyze(ctx context.Context, pkt internal_type.Packet) error {
 	switch p := pkt.(type) {
-	case internal_type.UserTextPacket:
+	case internal_type.UserTextReceivedPacket:
 		if p.Text == "" {
 			return nil
 		}
@@ -114,7 +114,7 @@ func (eos *SilenceBasedEOS) Analyze(ctx context.Context, pkt internal_type.Packe
 		)
 		eos.send(command{ctx: ctx, segment: seg, fireNow: true})
 
-	case internal_type.InterruptionPacket:
+	case internal_type.InterruptionDetectedPacket:
 		eos.mu.RLock()
 		seg := eos.state.segment
 		eos.mu.RUnlock()

@@ -17,8 +17,8 @@
 //  1. Initialize — dials the external agent's gRPC endpoint, starts a
 //     bidirectional Talk stream, sends ConversationInitialization as the first
 //     message, and spawns a listener goroutine.
-//  2. Execute (called per user turn) — forwards UserTextPacket to the agent.
-//     StaticPacket is a no-op (external agent manages its own history).
+//  2. Execute (called per user turn) — forwards UserTextReceivedPacket to the agent.
+//     InjectMessagePacket is a no-op (external agent manages its own history).
 //  3. Close — sends CloseSend on the stream, tears down the gRPC connection,
 //     and waits for the listener goroutine to exit (with a 5 s timeout).
 //
@@ -340,9 +340,9 @@ func (e *agentkitExecutor) handleResponse(ctx context.Context, resp *protos.Talk
 		if !e.isCurrentContextID(data.Interruption.GetId()) {
 			return
 		}
-		// Emits: InterruptionPacket + ConversationEventPacket {type: "interruption"}
+		// Emits: InterruptionDetectedPacket + ConversationEventPacket {type: "interruption"}
 		comm.OnPacket(ctx,
-			internal_type.InterruptionPacket{ContextID: data.Interruption.Id, Source: internal_type.InterruptionSourceWord},
+			internal_type.InterruptionDetectedPacket{ContextID: data.Interruption.Id, Source: internal_type.InterruptionSourceWord},
 			internal_type.ConversationEventPacket{
 				ContextID: data.Interruption.Id,
 				Name:      "agentkit",
@@ -467,17 +467,17 @@ func (e *agentkitExecutor) handleResponse(ctx context.Context, resp *protos.Talk
 
 // Execute sends a packet to the AgentKit server.
 //
-// Emits ConversationEventPacket: {type: "executing"} for UserTextPacket.
+// Emits ConversationEventPacket: {type: "executing"} for UserTextReceivedPacket.
 func (e *agentkitExecutor) Execute(ctx context.Context, comm internal_type.Communication, packet internal_type.Packet) error {
 	switch p := packet.(type) {
 	case internal_type.NormalizedUserTextPacket:
 		return e.sendUserMessage(ctx, comm, p.ContextID, p.Text)
-	case internal_type.UserTextPacket:
+	case internal_type.UserTextReceivedPacket:
 		return e.sendUserMessage(ctx, comm, p.ContextID, p.Text)
-	case internal_type.StaticPacket:
+	case internal_type.InjectMessagePacket:
 		// No-op: external agent manages its own history
 		return nil
-	case internal_type.InterruptionPacket:
+	case internal_type.InterruptionDetectedPacket:
 		e.setCurrentContextID("")
 		return nil
 

@@ -19,22 +19,22 @@ func NewLinguaParser(logger commons.Logger) Parser {
 	return &linguaParser{logger: logger, detector: lingua.NewLanguageDetectorBuilder().FromAllLanguages().Build()}
 }
 
-func (d *linguaParser) Parse(text string) (*types.Language, float64) {
+func (d *linguaParser) Parse(text string) (types.Language, float64) {
 	cleaned := strings.TrimSpace(text)
 	if cleaned == "" {
-		return nil, 0.0
+		return rapida_types.UNKNOWN_LANGUAGE, 0.0
 	}
 
 	confidenceValues := d.detector.ComputeLanguageConfidenceValues(cleaned)
 	if len(confidenceValues) == 0 {
-		return nil, 0.0
+		return rapida_types.UNKNOWN_LANGUAGE, 0.0
 	}
 	top := confidenceValues[0]
 	iso1 := strings.ToLower(top.Language().IsoCode639_1().String())
 	lang := rapida_types.LookupLanguage(iso1)
-	if lang == nil {
+	if lang == rapida_types.UNKNOWN_LANGUAGE {
 		d.logger.Warnf("language lookup failed for language %s", iso1)
-		return nil, 0.0
+		return rapida_types.UNKNOWN_LANGUAGE, 0.0
 	}
 	return lang, top.Value()
 }

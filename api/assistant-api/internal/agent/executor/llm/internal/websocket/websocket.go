@@ -237,7 +237,7 @@ func (e *websocketExecutor) handleResponse(ctx context.Context, resp *Response, 
 		if d.Source == "vad" {
 			source = internal_type.InterruptionSourceVad
 		}
-		onPacket(ctx, internal_type.InterruptionPacket{ContextID: d.ID, Source: source})
+		onPacket(ctx, internal_type.InterruptionDetectedPacket{ContextID: d.ID, Source: source})
 
 	case TypeClose:
 		var d CloseData
@@ -264,11 +264,11 @@ func (e *websocketExecutor) Execute(ctx context.Context, comm internal_type.Comm
 	switch p := packet.(type) {
 	case internal_type.NormalizedUserTextPacket:
 		return e.sendUserMessage(p.ContextID, p.Text)
-	case internal_type.UserTextPacket:
+	case internal_type.UserTextReceivedPacket:
 		return e.sendUserMessage(p.ContextID, p.Text)
-	case internal_type.StaticPacket:
+	case internal_type.InjectMessagePacket:
 		return nil
-	case internal_type.InterruptionPacket:
+	case internal_type.InterruptionDetectedPacket:
 		e.setCurrentContextID("")
 		return nil
 	default:

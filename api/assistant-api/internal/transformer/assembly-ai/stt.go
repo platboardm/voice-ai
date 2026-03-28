@@ -165,7 +165,7 @@ func (aai *assemblyaiSTT) readLoop(conn *websocket.Conn) {
 
 			if isInterim {
 				aai.onPacket(
-					internal_type.InterruptionPacket{Source: internal_type.InterruptionSourceWord},
+					internal_type.InterruptionDetectedPacket{Source: internal_type.InterruptionSourceWord},
 					internal_type.SpeechToTextPacket{
 						Script:     filteredTranscript,
 						Language:   "en",
@@ -192,7 +192,7 @@ func (aai *assemblyaiSTT) readLoop(conn *websocket.Conn) {
 				}
 				aai.mu.Unlock()
 				aai.onPacket(
-					internal_type.InterruptionPacket{Source: internal_type.InterruptionSourceWord},
+					internal_type.InterruptionDetectedPacket{Source: internal_type.InterruptionSourceWord},
 					internal_type.SpeechToTextPacket{
 						Script:     filteredTranscript,
 						Language:   "en",
@@ -211,7 +211,7 @@ func (aai *assemblyaiSTT) readLoop(conn *websocket.Conn) {
 						},
 						Time: now,
 					},
-					internal_type.MessageMetricPacket{
+					internal_type.UserMessageMetricPacket{
 						Metrics: []*protos.Metric{{Name: "stt_latency_ms", Value: fmt.Sprintf("%d", latencyMs)}},
 					},
 				)
@@ -226,7 +226,7 @@ func (aai *assemblyaiSTT) readLoop(conn *websocket.Conn) {
 	}
 }
 
-func (aai *assemblyaiSTT) Transform(ctx context.Context, in internal_type.UserAudioPacket) error {
+func (aai *assemblyaiSTT) Transform(ctx context.Context, in internal_type.UserAudioReceivedPacket) error {
 	aai.mu.Lock()
 	defer aai.mu.Unlock()
 	if aai.connection == nil {

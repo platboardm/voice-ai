@@ -55,7 +55,7 @@ func (n *inputNormalizer) Normalize(ctx context.Context, packets ...internal_typ
 			if err := n.Pipeline(ctx, InputPipeline{PipelinePacket: pipelinePacket}); err != nil {
 				return err
 			}
-		case internal_type.UserTextPacket:
+		case internal_type.UserTextReceivedPacket:
 			pipelinePacket := PipelinePacket{
 				ContextID: p.ContextID,
 				Speech:    p.Text,
@@ -79,15 +79,9 @@ func (n *inputNormalizer) Normalize(ctx context.Context, packets ...internal_typ
 func (n *inputNormalizer) Pipeline(ctx context.Context, v PipelineType) error {
 	switch p := v.(type) {
 	case InputPipeline:
-		if p.IsStop() {
-			return nil
-		}
 		return n.Pipeline(ctx, DetectLanguageProcessPipeline{ProcessPipeline: ProcessPipeline{PipelinePacket: p.PipelinePacket}})
 
 	case DetectLanguageProcessPipeline:
-		if p.IsStop() {
-			return nil
-		}
 		language := n.detectLanguage(p.PipelinePacket)
 		return n.Pipeline(ctx, OutputPipeline{
 			PipelinePacket: p.PipelinePacket,
@@ -95,9 +89,6 @@ func (n *inputNormalizer) Pipeline(ctx context.Context, v PipelineType) error {
 		})
 
 	case OutputPipeline:
-		if p.IsStop() {
-			return nil
-		}
 		if n.onPacket == nil {
 			return nil
 		}
@@ -112,19 +103,15 @@ func (n *inputNormalizer) Pipeline(ctx context.Context, v PipelineType) error {
 	}
 }
 
-func (n *inputNormalizer) detectLanguage(p PipelinePacket) *rapida_types.Language {
+func (n *inputNormalizer) detectLanguage(p PipelinePacket) rapida_types.Language {
 	if code := n.consensusLanguageCode(p.Speechs); code != "" {
-		if lang := rapida_types.LookupLanguage(code); lang != nil {
-			return lang
-		}
+		return rapida_types.LookupLanguage(code)
 	}
 	if strings.TrimSpace(p.Speech) == "" {
-		return nil
+		return rapida_types.UNKNOWN_LANGUAGE
 	}
-	if parsed, _ := n.parser.Parse(p.Speech); parsed != nil {
-		return parsed
-	}
-	return nil
+	parsed, _ := n.parser.Parse(p.Speech)
+	return parsed
 }
 
 func (n *inputNormalizer) consensusLanguageCode(speeches []internal_type.SpeechToTextPacket) string {
@@ -160,8 +147,5 @@ func (n *inputNormalizer) normalizeLanguageCode(v string) string {
 		return ""
 	}
 	canonical := rapida_types.LookupLanguage(clean)
-	if canonical == nil {
-		return ""
-	}
 	return canonical.ISO639_1
 }

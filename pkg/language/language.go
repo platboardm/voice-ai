@@ -8,5 +8,5 @@ import (
 // Parse returns canonical rapida language metadata for the given input text.
 // nil indicates no reliable canonical language could be resolved.
 type Parser interface {
-	Parse(text string) (*rapida_types.Language, float64)
+	Parse(text string) (rapida_types.Language, float64)
 }

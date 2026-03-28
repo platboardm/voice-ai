@@ -155,7 +155,7 @@ func (cst *sarvamSpeechToText) handleTranscription(response sarvam_internal.Sarv
 	}
 
 	cst.onPacket(
-		internal_type.InterruptionPacket{Source: internal_type.InterruptionSourceWord},
+		internal_type.InterruptionDetectedPacket{Source: internal_type.InterruptionSourceWord},
 		internal_type.SpeechToTextPacket{
 			Script:     transcriptionData.Transcript,
 			Confidence: 0.9,
@@ -174,7 +174,7 @@ func (cst *sarvamSpeechToText) handleTranscription(response sarvam_internal.Sarv
 			},
 			Time: now,
 		},
-		internal_type.MessageMetricPacket{
+		internal_type.UserMessageMetricPacket{
 			Metrics: []*protos.Metric{{Name: "stt_latency_ms", Value: fmt.Sprintf("%d", latencyMs)}},
 		},
 	)
@@ -197,7 +197,7 @@ func (cst *sarvamSpeechToText) handleServerError(response sarvam_internal.Sarvam
 	})
 }
 
-func (cst *sarvamSpeechToText) Transform(ctx context.Context, in internal_type.UserAudioPacket) error {
+func (cst *sarvamSpeechToText) Transform(ctx context.Context, in internal_type.UserAudioReceivedPacket) error {
 	vl, err := cst.speechToTextMessage(in.Audio)
 	if err != nil {
 		return fmt.Errorf("sarvam-stt: failed to encode audio: %w", err)

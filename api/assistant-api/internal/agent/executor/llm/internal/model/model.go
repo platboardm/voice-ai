@@ -172,8 +172,6 @@ func (e *modelAssistantExecutor) chat(
 	in *protos.Message,
 	histories ...*protos.Message,
 ) error {
-	request := e.buildChatRequest(communication, pkt.ContextId(), promptArgs, append(histories, in)...)
-
 	e.mu.RLock()
 	stream := e.stream
 	e.mu.RUnlock()
@@ -181,7 +179,7 @@ func (e *modelAssistantExecutor) chat(
 	if stream == nil {
 		return fmt.Errorf("stream not connected")
 	}
-	if err := stream.Send(request); err != nil {
+	if err := stream.Send(e.buildChatRequest(communication, pkt.ContextId(), promptArgs, append(histories, in)...)); err != nil {
 		e.logger.Errorf("error sending chat request: %v", err)
 		return fmt.Errorf("failed to send chat request: %w", err)
 	}
@@ -207,8 +205,10 @@ func (e *modelAssistantExecutor) chatWithHistory(
 	if stream == nil {
 		return fmt.Errorf("stream not connected")
 	}
-	request := e.buildChatRequest(communication, contextID, promptArgs, snapshot...)
-	if err := stream.Send(request); err != nil {
+	if err := e.validateHistorySequence(snapshot); err != nil {
+		e.logger.Errorf("history validation failed (sending anyway): %v", err)
+	}
+	if err := stream.Send(e.buildChatRequest(communication, contextID, promptArgs, snapshot...)); err != nil {
 		e.logger.Errorf("error sending chat request: %v", err)
 		return fmt.Errorf("failed to send chat request: %w", err)
 	}
@@ -299,20 +299,17 @@ func (e *modelAssistantExecutor) executeToolCalls(ctx context.Context, communica
 
 // Execute forwards an incoming packet to the LLM.
 //
-// Emits ConversationEventPacket: {type: "executing"} for UserTextPacket.
+// Emits ConversationEventPacket: {type: "executing"} for UserTextReceivedPacket.
 func (e *modelAssistantExecutor) Execute(ctx context.Context, communication internal_type.Communication, pctk internal_type.Packet) error {
 	switch p := pctk.(type) {
 	case internal_type.NormalizedUserTextPacket:
-		if strings.TrimSpace(p.ContextID) == "" {
-			return nil
-		}
 		e.mu.Lock()
 		e.currentPacket = &p
 		e.mu.Unlock()
-		return e.Pipeline(ctx, communication, PrepareHistoryProcessPipeline{
+		return e.Pipeline(ctx, communication, PrepareHistoryPipeline{
 			Packet: p,
 		})
-	case internal_type.StaticPacket:
+	case internal_type.InjectMessagePacket:
 		return e.Pipeline(ctx, communication, LocalHistoryPipeline{
 			Message: &protos.Message{
 				Role: "assistant",
@@ -321,7 +318,7 @@ func (e *modelAssistantExecutor) Execute(ctx context.Context, communication inte
 				}},
 			},
 		})
-	case internal_type.InterruptionPacket:
+	case internal_type.InterruptionDetectedPacket:
 		e.mu.Lock()
 		e.currentPacket = nil
 		e.mu.Unlock()
@@ -330,19 +327,26 @@ func (e *modelAssistantExecutor) Execute(ctx context.Context, communication inte
 	return fmt.Errorf("unsupported packet type: %T", pctk)
 }
 
-// Close cancels the listener context, tears down the stream, and clears history.
+// Close cancels the listener context, tears down the stream, clears history,
+// and closes the tool executor (releasing MCP and other tool-side resources).
 func (e *modelAssistantExecutor) Close(ctx context.Context) error {
 	if e.ctxCancel != nil {
 		e.ctxCancel()
 	}
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	if e.stream != nil {
 		e.stream.CloseSend()
 		e.stream = nil
 	}
 	e.currentPacket = nil
 	e.history = make([]*protos.Message, 0)
+	e.mu.Unlock()
+
+	if e.toolExecutor != nil {
+		if err := e.toolExecutor.Close(ctx); err != nil {
+			e.logger.Errorf("error closing tool executor: %v", err)
+		}
+	}
 	return nil
 }
 
@@ -365,11 +369,12 @@ func (e *modelAssistantExecutor) isCurrentContext(contextID string) bool {
 // =============================================================================
 // Pipeline Request Routing
 // =============================================================================
-// Pipeline is the central recursive router. Packets enter and get transformed
-// into pipeline types; pipeline types get their stages executed.
+
+// Pipeline is the central router. Each case handles one pipeline stage;
+// stages are structurally distinct types (sealed by PipelineType marker).
 func (e *modelAssistantExecutor) Pipeline(ctx context.Context, communication internal_type.Communication, v PipelineType) error {
 	switch p := v.(type) {
-	case LocalHistoryOutputPipeline:
+	case LocalHistoryPipeline:
 		if p.Message == nil {
 			return nil
 		}
@@ -377,7 +382,7 @@ func (e *modelAssistantExecutor) Pipeline(ctx context.Context, communication int
 		e.history = append(e.history, p.Message)
 		e.mu.Unlock()
 		return nil
-	case PrepareHistoryProcessPipeline:
+	case PrepareHistoryPipeline:
 		if !e.isCurrentContext(p.Packet.ContextID) {
 			return nil
 		}
@@ -385,7 +390,7 @@ func (e *modelAssistantExecutor) Pipeline(ctx context.Context, communication int
 		history := make([]*protos.Message, len(e.history))
 		copy(history, e.history)
 		e.mu.RUnlock()
-		return e.Pipeline(ctx, communication, AssistantArgumentationProcessPipeline{
+		return e.Pipeline(ctx, communication, ArgumentationPipeline{
 			Packet: p.Packet,
 			UserMessage: &protos.Message{
 				Role: "user",
@@ -396,70 +401,33 @@ func (e *modelAssistantExecutor) Pipeline(ctx context.Context, communication int
 			History:    history,
 			PromptArgs: map[string]interface{}{},
 		})
-	case ArgumentationProcessPipeline:
+	case ArgumentationPipeline:
 		if !e.isCurrentContext(p.Packet.ContextID) {
 			return nil
 		}
-		return e.Pipeline(ctx, communication, AssistantArgumentationProcessPipeline{
-			Packet:       p.Packet,
-			UserMessage:  p.UserMessage,
-			History:      p.History,
-			PromptArgs:   p.PromptArgs,
-			ToolFollowUp: p.ToolFollowUp,
-		})
-	case AssistantArgumentationProcessPipeline:
-		if !e.isCurrentContext(p.Packet.ContextID) {
-			return nil
-		}
-		return e.Pipeline(ctx, communication, ConversationArgumentationProcessPipeline{
-			Packet:       p.Packet,
-			UserMessage:  p.UserMessage,
-			History:      p.History,
-			PromptArgs:   utils.MergeMaps(p.PromptArgs, e.buildAssistantArgumentationContext(communication)),
-			ToolFollowUp: p.ToolFollowUp,
-		})
-	case ConversationArgumentationProcessPipeline:
-		if !e.isCurrentContext(p.Packet.ContextID) {
-			return nil
-		}
-		return e.Pipeline(ctx, communication, MessageArgumentationProcessPipeline{
-			Packet:       p.Packet,
-			UserMessage:  p.UserMessage,
-			History:      p.History,
-			PromptArgs:   utils.MergeMaps(p.PromptArgs, e.buildConversationArgumentationContext(communication)),
-			ToolFollowUp: p.ToolFollowUp,
-		})
-	case MessageArgumentationProcessPipeline:
-		if !e.isCurrentContext(p.Packet.ContextID) {
-			return nil
-		}
-		return e.Pipeline(ctx, communication, SessionArgumentationProcessPipeline{
-			Packet:       p.Packet,
-			UserMessage:  p.UserMessage,
-			History:      p.History,
-			PromptArgs:   utils.MergeMaps(p.PromptArgs, e.buildMessageArgumentationContext(p.Packet)),
-			ToolFollowUp: p.ToolFollowUp,
-		})
-	case SessionArgumentationProcessPipeline:
-		if !e.isCurrentContext(p.Packet.ContextID) {
-			return nil
-		}
-		promptArgs := utils.MergeMaps(p.PromptArgs, e.buildSessionArgumentationContext(communication))
+		promptArgs := p.PromptArgs
+		promptArgs = utils.MergeMaps(promptArgs, e.buildAssistantArgumentationContext(communication))
+		promptArgs = utils.MergeMaps(promptArgs, e.buildConversationArgumentationContext(communication))
+		promptArgs = utils.MergeMaps(promptArgs, e.buildMessageArgumentationContext(p.Packet))
+		promptArgs = utils.MergeMaps(promptArgs, e.buildSessionArgumentationContext(communication))
 		if p.ToolFollowUp {
-			return e.Pipeline(ctx, communication, ToolFollowUpOutputPipeline{
+			return e.Pipeline(ctx, communication, ToolFollowUpPipeline{
 				ContextID:  p.Packet.ContextID,
 				PromptArgs: promptArgs,
 			})
 		}
-		return e.Pipeline(ctx, communication, LLMRequestOutputPipeline{
+		return e.Pipeline(ctx, communication, LLMRequestPipeline{
 			Packet:      p.Packet,
 			UserMessage: p.UserMessage,
 			History:     p.History,
 			PromptArgs:  promptArgs,
 		})
-	case LLMRequestOutputPipeline:
+	case LLMRequestPipeline:
 		if !e.isCurrentContext(p.Packet.ContextID) {
 			return nil
+		}
+		if err := e.validateHistorySequence(p.History); err != nil {
+			e.logger.Errorf("history validation failed (sending anyway): %v", err)
 		}
 		communication.OnPacket(ctx, internal_type.ConversationEventPacket{
 			ContextID: p.Packet.ContextID,
@@ -475,10 +443,10 @@ func (e *modelAssistantExecutor) Pipeline(ctx context.Context, communication int
 		if err := e.chat(ctx, communication, p.Packet, p.PromptArgs, p.UserMessage, p.History...); err != nil {
 			return err
 		}
-		return e.Pipeline(ctx, communication, LocalHistoryOutputPipeline{
+		return e.Pipeline(ctx, communication, LocalHistoryPipeline{
 			Message: p.UserMessage,
 		})
-	case ToolFollowUpOutputPipeline:
+	case ToolFollowUpPipeline:
 		if !e.isCurrentContext(p.ContextID) {
 			return nil
 		}
@@ -506,18 +474,6 @@ func (e *modelAssistantExecutor) Pipeline(ctx context.Context, communication int
 	}
 }
 
-func (e *modelAssistantExecutor) clonePromptArguments(in map[string]interface{}) map[string]interface{} {
-	out := make(map[string]interface{}, len(in))
-	for k, v := range in {
-		if nested, ok := v.(map[string]interface{}); ok {
-			out[k] = e.clonePromptArguments(nested)
-			continue
-		}
-		out[k] = v
-	}
-	return out
-}
-
 func (e *modelAssistantExecutor) buildAssistantArgumentationContext(communication internal_type.Communication) map[string]interface{} {
 	now := time.Now().UTC()
 	system := map[string]interface{}{
@@ -540,6 +496,7 @@ func (e *modelAssistantExecutor) buildAssistantArgumentationContext(communicatio
 		}
 	}
 
+	// args merged both namespaced ({{args.key}}) and flat ({{key}}) for template compat.
 	args := communication.GetArgs()
 	return utils.MergeMaps(
 		map[string]interface{}{"system": system},
@@ -572,10 +529,8 @@ func (e *modelAssistantExecutor) buildMessageArgumentationContext(packet interna
 	message := map[string]interface{}{
 		"text": "",
 	}
-	if packet.Language != nil {
-		message["language"] = packet.Language.Name
-		message["language_code"] = packet.Language.ISO639_1
-	}
+	message["language"] = packet.Language.Name
+	message["language_code"] = packet.Language.ISO639_1
 	message["text"] = packet.Text
 	return map[string]interface{}{"message": message}
 }
@@ -763,7 +718,7 @@ func (e *modelAssistantExecutor) stageEmitResponseUpstream(ctx context.Context, 
 				},
 				Time: now,
 			},
-			internal_type.MessageMetricPacket{
+			internal_type.AssistantMessageMetricPacket{
 				ContextID: contextID,
 				Metrics:   pipeline.Metrics,
 			},
@@ -778,7 +733,8 @@ func (e *modelAssistantExecutor) stageEmitResponseUpstream(ctx context.Context, 
 				Text:      text,
 			},
 			internal_type.ConversationEventPacket{
-				Name: "llm",
+				ContextID: contextID,
+				Name:      "llm",
 				Data: map[string]string{
 					"type":                "chunk",
 					"text":                text,

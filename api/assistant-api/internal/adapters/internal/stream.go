@@ -116,11 +116,11 @@ func (t *genericRequestor) Talk(_ context.Context, auth types.SimplePrinciple) e
 			if initialized {
 				switch msg := payload.GetMessage().(type) {
 				case *protos.ConversationUserMessage_Audio:
-					if err := t.OnPacket(t.streamer.Context(), internal_type.UserAudioPacket{ContextID: t.GetID(), Audio: msg.Audio}); err != nil {
+					if err := t.OnPacket(t.streamer.Context(), internal_type.UserAudioReceivedPacket{ContextID: t.GetID(), Audio: msg.Audio}); err != nil {
 						t.logger.Errorf("error processing user audio: %v", err)
 					}
 				case *protos.ConversationUserMessage_Text:
-					if err := t.OnPacket(t.streamer.Context(), internal_type.UserTextPacket{ContextID: t.GetID(), Text: msg.Text}); err != nil {
+					if err := t.OnPacket(t.streamer.Context(), internal_type.UserTextReceivedPacket{ContextID: t.GetID(), Text: msg.Text}); err != nil {
 						t.logger.Errorf("error processing user text: %v", err)
 					}
 				default:

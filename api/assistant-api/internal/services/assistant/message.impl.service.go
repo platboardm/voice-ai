@@ -331,17 +331,17 @@ func (conversationService *assistantConversationService) ApplyMessageMetadata(
 	auth types.SimplePrinciple,
 	assistantConversationId uint64,
 	assistantConversationMessageId string,
-	metadata map[string]interface{},
+	metadata []*protos.Metadata,
 ) ([]*internal_message_gorm.AssistantConversationMessageMetadata, error) {
 	start := time.Now()
 	db := conversationService.postgres.DB(ctx)
 	_mtdata := make([]*internal_message_gorm.AssistantConversationMessageMetadata, 0)
-	for k, m := range metadata {
+	for _, m := range metadata {
 		_mtd := &internal_message_gorm.AssistantConversationMessageMetadata{
 			AssistantConversationId:        assistantConversationId,
 			AssistantConversationMessageId: assistantConversationMessageId,
 			Metadata: gorm_models.Metadata{
-				Key: k,
+				Key: m.GetKey(),
 			},
 		}
 		_mtd.SetValue(m)
@@ -379,7 +379,7 @@ func (conversationService *assistantConversationService) ApplyMessageMetrics(
 	auth types.SimplePrinciple,
 	assistantConversationId uint64,
 	assistantConversationMessageId string,
-	metrics []*types.Metric,
+	metrics []*protos.Metric,
 ) ([]*internal_message_gorm.AssistantConversationMessageMetric, error) {
 	start := time.Now()
 	db := conversationService.postgres.DB(ctx)

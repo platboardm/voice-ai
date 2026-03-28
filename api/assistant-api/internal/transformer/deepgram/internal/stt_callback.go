@@ -84,7 +84,7 @@ func (d *deepgramSttCallback) Message(mr *msginterfaces.MessageResponse) error {
 			}
 			wordCount := len(strings.Fields(alternative.Transcript))
 			d.onPacket(
-				internal_type.InterruptionPacket{Source: "word"},
+				internal_type.InterruptionDetectedPacket{Source: "word"},
 				internal_type.SpeechToTextPacket{
 					Script:     alternative.Transcript,
 					Confidence: alternative.Confidence,
@@ -103,14 +103,14 @@ func (d *deepgramSttCallback) Message(mr *msginterfaces.MessageResponse) error {
 					},
 					Time: now,
 				},
-				internal_type.MessageMetricPacket{
+				internal_type.UserMessageMetricPacket{
 					Metrics: []*protos.Metric{{Name: "stt_latency_ms", Value: fmt.Sprintf("%d", latencyMs)}},
 				},
 			)
 		} else {
 			// Non-final interim transcript
 			d.onPacket(
-				internal_type.InterruptionPacket{Source: "word"},
+				internal_type.InterruptionDetectedPacket{Source: "word"},
 				internal_type.SpeechToTextPacket{
 					Script:     alternative.Transcript,
 					Confidence: alternative.Confidence,

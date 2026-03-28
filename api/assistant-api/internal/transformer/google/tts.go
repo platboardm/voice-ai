@@ -141,7 +141,7 @@ func (google *googleTextToSpeech) Transform(ctx context.Context, in internal_typ
 	}
 
 	switch input := in.(type) {
-	case internal_type.InterruptionPacket:
+	case internal_type.InterruptionDetectedPacket:
 		if currentCtx != "" {
 			google.mu.Lock()
 			google.ttsStartedAt = time.Time{}
@@ -279,7 +279,7 @@ func (g *googleTextToSpeech) recvLoop(streamClient texttospeechpb.TextToSpeech_S
 		}
 		g.mu.Unlock()
 		if !metricSent && !startedAt.IsZero() {
-			g.onPacket(internal_type.MessageMetricPacket{
+			g.onPacket(internal_type.AssistantMessageMetricPacket{
 				ContextID: effectiveContextId,
 				Metrics: []*protos.Metric{{
 					Name:  "tts_latency_ms",

@@ -132,7 +132,7 @@ func (elt *elevenlabsTTS) readLoop(conn *websocket.Conn) {
 				elt.mu.Unlock()
 				if ctxId != "" {
 					if !metricSent && !startedAt.IsZero() {
-						elt.onPacket(internal_type.MessageMetricPacket{
+						elt.onPacket(internal_type.AssistantMessageMetricPacket{
 							ContextID: ctxId,
 							Metrics: []*protos.Metric{{
 								Name:  "tts_latency_ms",
@@ -185,7 +185,7 @@ func (t *elevenlabsTTS) Transform(ctx context.Context, in internal_type.LLMPacke
 	t.mu.Unlock()
 
 	switch input := in.(type) {
-	case internal_type.InterruptionPacket:
+	case internal_type.InterruptionDetectedPacket:
 		t.mu.Lock()
 		t.contextId = ""
 		t.ttsStartedAt = time.Time{}

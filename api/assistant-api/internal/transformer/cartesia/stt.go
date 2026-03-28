@@ -122,7 +122,7 @@ func (cst *cartesiaSpeechToText) readLoop(conn *websocket.Conn) {
 
 		if !resp.IsFinal {
 			cst.onPacket(
-				internal_type.InterruptionPacket{Source: internal_type.InterruptionSourceWord},
+				internal_type.InterruptionDetectedPacket{Source: internal_type.InterruptionSourceWord},
 				internal_type.SpeechToTextPacket{
 					Script:   resp.Text,
 					Language: resp.Language,
@@ -148,7 +148,7 @@ func (cst *cartesiaSpeechToText) readLoop(conn *websocket.Conn) {
 			}
 			cst.mu.Unlock()
 			cst.onPacket(
-				internal_type.InterruptionPacket{Source: internal_type.InterruptionSourceWord},
+				internal_type.InterruptionDetectedPacket{Source: internal_type.InterruptionSourceWord},
 				internal_type.SpeechToTextPacket{
 					Script:   resp.Text,
 					Language: resp.Language,
@@ -166,7 +166,7 @@ func (cst *cartesiaSpeechToText) readLoop(conn *websocket.Conn) {
 					},
 					Time: now,
 				},
-				internal_type.MessageMetricPacket{
+				internal_type.UserMessageMetricPacket{
 					Metrics: []*protos.Metric{{Name: "stt_latency_ms", Value: fmt.Sprintf("%d", latencyMs)}},
 				},
 			)
@@ -174,7 +174,7 @@ func (cst *cartesiaSpeechToText) readLoop(conn *websocket.Conn) {
 	}
 }
 
-func (cst *cartesiaSpeechToText) Transform(ctx context.Context, in internal_type.UserAudioPacket) error {
+func (cst *cartesiaSpeechToText) Transform(ctx context.Context, in internal_type.UserAudioReceivedPacket) error {
 	cst.mu.Lock()
 	conn := cst.connection
 	if cst.startedAt.IsZero() {

@@ -198,12 +198,12 @@ func (eos *LivekitEOS) Name() string {
 }
 
 // Analyze processes incoming packets using the hybrid turn detection model.
-// In addition to the standard EOS packet types (UserTextPacket, InterruptionPacket,
+// In addition to the standard EOS packet types (UserTextReceivedPacket, InterruptionDetectedPacket,
 // SpeechToTextPacket), it also observes LLMResponseDonePacket to build
 // conversation history for context-aware turn prediction.
 func (eos *LivekitEOS) Analyze(ctx context.Context, pkt internal_type.Packet) error {
 	switch p := pkt.(type) {
-	case internal_type.UserTextPacket:
+	case internal_type.UserTextReceivedPacket:
 		if p.Text == "" {
 			return nil
 		}
@@ -222,7 +222,7 @@ func (eos *LivekitEOS) Analyze(ctx context.Context, pkt internal_type.Packet) er
 			fireNow: true,
 		})
 
-	case internal_type.InterruptionPacket:
+	case internal_type.InterruptionDetectedPacket:
 		eos.mu.RLock()
 		seg := eos.state.segment
 		eos.mu.RUnlock()

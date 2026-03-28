@@ -76,7 +76,7 @@ func NewGoogleSpeechToText(ctx context.Context, logger commons.Logger, credentia
 }
 
 // Transform implements internal_transformer.SpeechToTextTransformer.
-func (google *googleSpeechToText) Transform(c context.Context, in internal_type.UserAudioPacket) error {
+func (google *googleSpeechToText) Transform(c context.Context, in internal_type.UserAudioReceivedPacket) error {
 	google.mu.Lock()
 	strm := google.stream
 	if google.startedAt.IsZero() {
@@ -175,7 +175,7 @@ func (g *googleSpeechToText) recvLoop(stream speechpb.Speech_StreamingRecognizeC
 				}
 				g.mu.Unlock()
 				g.onPacket(
-					internal_type.InterruptionPacket{Source: internal_type.InterruptionSourceWord},
+					internal_type.InterruptionDetectedPacket{Source: internal_type.InterruptionSourceWord},
 					internal_type.SpeechToTextPacket{
 						Script:     transcript,
 						Confidence: float64(alt.GetConfidence()),
@@ -194,13 +194,13 @@ func (g *googleSpeechToText) recvLoop(stream speechpb.Speech_StreamingRecognizeC
 						},
 						Time: now,
 					},
-					internal_type.MessageMetricPacket{
+					internal_type.UserMessageMetricPacket{
 						Metrics: []*protos.Metric{{Name: "stt_latency_ms", Value: fmt.Sprintf("%d", latencyMs)}},
 					},
 				)
 			} else {
 				g.onPacket(
-					internal_type.InterruptionPacket{Source: internal_type.InterruptionSourceWord},
+					internal_type.InterruptionDetectedPacket{Source: internal_type.InterruptionSourceWord},
 					internal_type.SpeechToTextPacket{
 						Script:     transcript,
 						Confidence: float64(result.GetStability()),

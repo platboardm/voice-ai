@@ -131,7 +131,7 @@ func (s *azureSpeechToText) Name() string {
 }
 
 // Transform writes audio data to the input stream for recognition.
-func (s *azureSpeechToText) Transform(_ context.Context, in internal_type.UserAudioPacket) error {
+func (s *azureSpeechToText) Transform(_ context.Context, in internal_type.UserAudioReceivedPacket) error {
 	s.mu.Lock()
 	stream := s.inputstream
 	s.mu.Unlock()
@@ -183,7 +183,7 @@ func (s *azureSpeechToText) OnRecognizing(event speech.SpeechRecognitionEventArg
 	}
 
 	s.onPacket(
-		internal_type.InterruptionPacket{Source: internal_type.InterruptionSourceWord},
+		internal_type.InterruptionDetectedPacket{Source: internal_type.InterruptionSourceWord},
 		internal_type.SpeechToTextPacket{
 			Script:     result.Text,
 			Confidence: defaultConfidence,
@@ -260,7 +260,7 @@ func (s *azureSpeechToText) OnRecognized(event speech.SpeechRecognitionEventArgs
 
 	confStr := fmt.Sprintf("%.4f", confidence)
 	s.onPacket(
-		internal_type.InterruptionPacket{Source: internal_type.InterruptionSourceWord},
+		internal_type.InterruptionDetectedPacket{Source: internal_type.InterruptionSourceWord},
 		internal_type.SpeechToTextPacket{
 			Script:     text,
 			Confidence: confidence,
@@ -279,7 +279,7 @@ func (s *azureSpeechToText) OnRecognized(event speech.SpeechRecognitionEventArgs
 			},
 			Time: now,
 		},
-		internal_type.MessageMetricPacket{
+		internal_type.UserMessageMetricPacket{
 			Metrics: []*protos.Metric{{Name: "stt_latency_ms", Value: fmt.Sprintf("%d", latencyMs)}},
 		},
 	)

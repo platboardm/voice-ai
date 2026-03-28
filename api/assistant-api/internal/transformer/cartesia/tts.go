@@ -166,7 +166,7 @@ func (cst *cartesiaTTS) readLoop(conn *websocket.Conn) {
 		cst.mu.Unlock()
 
 		if !metricSent && !startedAt.IsZero() {
-			_ = cst.onPacket(internal_type.MessageMetricPacket{
+			_ = cst.onPacket(internal_type.AssistantMessageMetricPacket{
 				ContextID: ctxId,
 				Metrics: []*protos.Metric{{
 					Name:  "tts_latency_ms",
@@ -189,7 +189,7 @@ func (ct *cartesiaTTS) Transform(ctx context.Context, in internal_type.LLMPacket
 	ct.mu.Unlock()
 
 	switch input := in.(type) {
-	case internal_type.InterruptionPacket:
+	case internal_type.InterruptionDetectedPacket:
 		ct.mu.Lock()
 		ct.contextId = ""
 		ct.ttsStartedAt = time.Time{}

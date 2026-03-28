@@ -370,11 +370,12 @@ func (r *genericRequestor) initSessionBackground(ctx context.Context, isNew bool
 		})
 	})
 
-	utils.Go(ctx, func() {
-		if err := r.initializeInputNormalizer(ctx); err != nil {
-			r.logger.Tracef(ctx, "failed to initialize input normalizer: %+v", err)
-		}
-	})
+	// Input normalizer init is synchronous — it only sets a callback, no I/O.
+	// Must be ready before the first EndOfSpeechPacket arrives, otherwise the
+	// turn is silently dropped (onPacket == nil in the OutputPipeline stage).
+	if err := r.initializeInputNormalizer(ctx); err != nil {
+		r.logger.Tracef(ctx, "failed to initialize input normalizer: %+v", err)
+	}
 
 	utils.Go(ctx, func() {
 		if err := r.initializeEndOfSpeech(ctx); err != nil {

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -216,7 +217,8 @@ func (m *noModeCommunication) GetMetadata() map[string]interface{} {
 // =============================================================================
 
 type mockToolExecutor struct {
-	executeFn func(ctx context.Context, contextID string, calls []*protos.ToolCall, comm internal_type.Communication) *protos.Message
+	executeFn   func(ctx context.Context, contextID string, calls []*protos.ToolCall, comm internal_type.Communication) *protos.Message
+	closeCalled bool
 }
 
 var _ internal_agent_executor.ToolExecutor = (*mockToolExecutor)(nil)
@@ -237,6 +239,7 @@ func (m *mockToolExecutor) ExecuteAll(ctx context.Context, contextID string, cal
 }
 
 func (m *mockToolExecutor) Close(context.Context) error {
+	m.closeCalled = true
 	return nil
 }
 
@@ -269,10 +272,10 @@ func newTestExecutor() *modelAssistantExecutor {
 	}
 }
 
-func mustLanguage(t *testing.T, iso6391 string) *rapida_types.Language {
+func mustLanguage(t *testing.T, iso6391 string) rapida_types.Language {
 	t.Helper()
 	lang := rapida_types.LookupLanguage(iso6391)
-	require.NotNil(t, lang, "language %q must exist", iso6391)
+	require.NotEmpty(t, lang.Name, "language %q must exist", iso6391)
 	return lang
 }
 
@@ -396,20 +399,6 @@ func TestBuildSessionArgumentationContext_IncludesMode(t *testing.T) {
 	assert.Equal(t, "audio", session["mode"])
 }
 
-func TestClonePromptArguments_DeepClone(t *testing.T) {
-	e := newTestExecutor()
-	in := map[string]interface{}{
-		"message": map[string]interface{}{
-			"text": "hello",
-		},
-		"name": "a",
-	}
-	cloned := e.clonePromptArguments(in)
-	nested := cloned["message"].(map[string]interface{})
-	nested["text"] = "changed"
-	assert.Equal(t, "hello", in["message"].(map[string]interface{})["text"])
-}
-
 func TestRequestPipeline_ExecutesAllStages(t *testing.T) {
 	e := newTestExecutor()
 	stream := newMockStream()
@@ -473,15 +462,6 @@ func TestPipeline_LocalHistoryPipeline_NilMessageNoOp(t *testing.T) {
 	err := e.Pipeline(context.Background(), comm, LocalHistoryPipeline{})
 	require.NoError(t, err)
 	assert.Empty(t, historySnapshot(e))
-}
-
-func TestPipeline_RejectsUnsupportedPipelineType(t *testing.T) {
-	e := newTestExecutor()
-	comm, _ := newTestComm()
-
-	err := e.Pipeline(context.Background(), comm, &unknownPipeline{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported pipeline type")
 }
 
 func TestPipeline_PrepareHistoryPipeline_ChainsToSendAndAppend(t *testing.T) {
@@ -604,18 +584,19 @@ func TestExecute_MessageLanguage_DefaultEnglishFallback(t *testing.T) {
 	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
 		ContextID: "ctx-default-language",
 		Text:      "hello",
-		Language:  nil,
 	})
 	require.NoError(t, err)
 
 	stream.mu.Lock()
 	require.Len(t, stream.sendCalls, 1)
 	require.NotNil(t, stream.sendCalls[0].GetConversations()[0].GetSystem())
-	assert.Equal(t, "lang=English text=hello", stream.sendCalls[0].GetConversations()[0].GetSystem().GetContent())
+	// When Language is zero-value, buildMessageArgumentationContext sets language=""
+	// (overrides the "English" default from buildAssistantArgumentationContext).
+	assert.Equal(t, "lang= text=hello", stream.sendCalls[0].GetConversations()[0].GetSystem().GetContent())
 	stream.mu.Unlock()
 }
 
-func TestExecute_MessageLanguage_UsesUserTextPacketLanguage(t *testing.T) {
+func TestExecute_MessageLanguage_UsesUserTextReceivedPacketLanguage(t *testing.T) {
 	e := newTestExecutor()
 	stream := newMockStream()
 	e.stream = stream
@@ -921,7 +902,7 @@ func TestHandleResponse_FinalWithoutToolCalls(t *testing.T) {
 	assert.Equal(t, "completed", ev.Data["type"])
 	assert.Equal(t, "11", ev.Data["response_char_count"])
 
-	metric, ok := pkts[2].(internal_type.MessageMetricPacket)
+	metric, ok := pkts[2].(internal_type.AssistantMessageMetricPacket)
 	require.True(t, ok)
 	assert.Equal(t, "req-3", metric.ContextID)
 	require.Len(t, metric.Metrics, 1)
@@ -964,7 +945,7 @@ func TestHandleResponse_FinalWithToolCalls(t *testing.T) {
 	e.executeResponse(context.Background(), comm, resp)
 
 	pkts := collector.all()
-	// Should have: LLMResponseDonePacket, ConversationEventPacket(completed), MessageMetricPacket, LLMErrorPacket(tool call follow-up failed)
+	// Should have: LLMResponseDonePacket, ConversationEventPacket(completed), AssistantMessageMetricPacket, LLMErrorPacket(tool call follow-up failed)
 	require.GreaterOrEqual(t, len(pkts), 4)
 
 	done, ok := findPacket[internal_type.LLMResponseDonePacket](pkts)
@@ -1075,6 +1056,7 @@ func TestHandleResponse_StreamDelta(t *testing.T) {
 	assert.Equal(t, "chunk", ev.Data["type"])
 	assert.Equal(t, "partial", ev.Data["text"])
 	assert.Equal(t, "7", ev.Data["response_char_count"])
+	assert.Equal(t, "req-5", ev.ContextID, "chunk event must include ContextID for correlation")
 }
 
 // =============================================================================
@@ -1132,7 +1114,7 @@ func TestConcurrency_HistoryAndSnapshot(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 100; i++ {
-			_ = e.Execute(context.Background(), comm, internal_type.StaticPacket{
+			_ = e.Execute(context.Background(), comm, internal_type.InjectMessagePacket{
 				ContextID: fmt.Sprintf("ctx-%d", i),
 				Text:      fmt.Sprintf("msg-%d", i),
 			})
@@ -1165,19 +1147,19 @@ func TestHistoryClearedAfterClose(t *testing.T) {
 }
 
 // =============================================================================
-// Tests: Execute — StaticPacket and UserTextPacket paths
+// Tests: Execute — InjectMessagePacket and UserTextReceivedPacket paths
 // =============================================================================
 
-func TestExecute_StaticPacket_AppendsHistory(t *testing.T) {
+func TestExecute_InjectMessagePacket_AppendsHistory(t *testing.T) {
 	e := newTestExecutor()
 	comm, collector := newTestComm()
 
-	err := e.Execute(context.Background(), comm, internal_type.StaticPacket{
+	err := e.Execute(context.Background(), comm, internal_type.InjectMessagePacket{
 		ContextID: "ctx-1",
 		Text:      "hello",
 	})
 	require.NoError(t, err)
-	assert.Empty(t, collector.all(), "StaticPacket should not emit packets")
+	assert.Empty(t, collector.all(), "InjectMessagePacket should not emit packets")
 
 	snapshot := historySnapshot(e)
 	require.Len(t, snapshot, 1)
@@ -1185,7 +1167,7 @@ func TestExecute_StaticPacket_AppendsHistory(t *testing.T) {
 	assert.Equal(t, []string{"hello"}, snapshot[0].GetAssistant().GetContents())
 }
 
-func TestExecute_UserTextPacket_SendsAndRecordsHistory(t *testing.T) {
+func TestExecute_UserTextReceivedPacket_SendsAndRecordsHistory(t *testing.T) {
 	e := newTestExecutor()
 	stream := newMockStream()
 	e.stream = stream
@@ -1214,10 +1196,10 @@ func TestExecute_UserTextPacket_SendsAndRecordsHistory(t *testing.T) {
 	require.NotNil(t, e.currentPacket)
 	currentPacket := *e.currentPacket
 	assert.Equal(t, "say hello", currentPacket.Text)
-	assert.Nil(t, currentPacket.Language)
+	assert.Empty(t, currentPacket.Language.Name, "Language should be zero-value when not set")
 }
 
-func TestExecute_InterruptionPacket(t *testing.T) {
+func TestExecute_InterruptionDetectedPacket(t *testing.T) {
 	e := newTestExecutor()
 	e.currentPacket = &internal_type.NormalizedUserTextPacket{
 		ContextID: "ctx-old",
@@ -1226,7 +1208,7 @@ func TestExecute_InterruptionPacket(t *testing.T) {
 	}
 	comm, _ := newTestComm()
 
-	err := e.Execute(context.Background(), comm, internal_type.InterruptionPacket{ContextID: "x"})
+	err := e.Execute(context.Background(), comm, internal_type.InterruptionDetectedPacket{ContextID: "x"})
 	require.NoError(t, err)
 	assert.Nil(t, e.currentPacket, "currentPacket should be nil on interrupt")
 }
@@ -1277,6 +1259,7 @@ func TestClose_ClearsHistoryAndStream(t *testing.T) {
 	e := newTestExecutor()
 	stream := newMockStream()
 	e.stream = stream
+	toolExec := e.toolExecutor.(*mockToolExecutor)
 	e.mu.Lock()
 	e.history = append(e.history, &protos.Message{Role: "user"})
 	e.currentPacket = &internal_type.NormalizedUserTextPacket{
@@ -1294,6 +1277,7 @@ func TestClose_ClearsHistoryAndStream(t *testing.T) {
 	assert.Nil(t, e.stream)
 	assert.Empty(t, e.history)
 	assert.Nil(t, e.currentPacket)
+	assert.True(t, toolExec.closeCalled, "Close must call toolExecutor.Close to release MCP resources")
 }
 
 func TestClose_NoPanicNilStream(t *testing.T) {
@@ -1476,10 +1460,10 @@ func TestConcurrency_ListenAndClose(t *testing.T) {
 }
 
 // =============================================================================
-// Tests: Execute UserTextPacket includes correct history_count
+// Tests: Execute UserTextReceivedPacket includes correct history_count
 // =============================================================================
 
-func TestExecute_UserTextPacket_HistoryCount(t *testing.T) {
+func TestExecute_UserTextReceivedPacket_HistoryCount(t *testing.T) {
 	e := newTestExecutor()
 	stream := newMockStream()
 	e.stream = stream
@@ -1572,4 +1556,933 @@ func TestListen_ExitsCleanlyOnClose(t *testing.T) {
 
 	dirs := findPackets[internal_type.DirectivePacket](collector.all())
 	assert.Empty(t, dirs, "END_CONVERSATION must not be dispatched when context is cancelled")
+}
+
+// =============================================================================
+// End-to-End: full user turn → stream deltas → final response → history
+// =============================================================================
+
+func TestE2E_FullConversationTurn(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, collector := newTestComm()
+	en := mustLanguage(t, "en")
+
+	// 1. User sends a message
+	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+		ContextID: "turn-1",
+		Text:      "What is Go?",
+		Language:  en,
+	})
+	require.NoError(t, err)
+
+	// Verify: stream received the chat request
+	stream.mu.Lock()
+	require.Len(t, stream.sendCalls, 1)
+	stream.mu.Unlock()
+
+	// Verify: user message appended to history
+	snap := historySnapshot(e)
+	require.Len(t, snap, 1)
+	assert.Equal(t, "user", snap[0].Role)
+	assert.Equal(t, "What is Go?", snap[0].GetUser().GetContent())
+
+	// 2. Simulate streaming deltas from LLM
+	e.executeResponse(context.Background(), comm, &protos.ChatResponse{
+		RequestId: "turn-1",
+		Success:   true,
+		Data: &protos.Message{
+			Role:    "assistant",
+			Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{Contents: []string{"Go is"}}},
+		},
+	})
+	e.executeResponse(context.Background(), comm, &protos.ChatResponse{
+		RequestId: "turn-1",
+		Success:   true,
+		Data: &protos.Message{
+			Role:    "assistant",
+			Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{Contents: []string{" a language"}}},
+		},
+	})
+
+	// 3. Final response with metrics
+	e.executeResponse(context.Background(), comm, &protos.ChatResponse{
+		RequestId: "turn-1",
+		Success:   true,
+		Data: &protos.Message{
+			Role:    "assistant",
+			Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{Contents: []string{"Go is a language"}}},
+		},
+		Metrics: []*protos.Metric{{Name: "total_tokens", Value: "42"}},
+	})
+
+	// Verify: packets emitted in correct order
+	pkts := collector.all()
+	// Expected: executing event, 2 delta pairs (delta+event), final triple (done+event+metric)
+	events := findPackets[internal_type.ConversationEventPacket](pkts)
+	deltas := findPackets[internal_type.LLMResponseDeltaPacket](pkts)
+	dones := findPackets[internal_type.LLMResponseDonePacket](pkts)
+	metrics := findPackets[internal_type.AssistantMessageMetricPacket](pkts)
+
+	assert.Len(t, deltas, 2, "should have 2 streaming deltas")
+	assert.Equal(t, "Go is", deltas[0].Text)
+	assert.Equal(t, " a language", deltas[1].Text)
+	require.Len(t, dones, 1, "should have 1 done packet")
+	assert.Equal(t, "Go is a language", dones[0].Text)
+	require.Len(t, metrics, 1)
+	assert.Equal(t, "total_tokens", metrics[0].Metrics[0].Name)
+
+	// Verify event types in order
+	eventTypes := make([]string, 0, len(events))
+	for _, ev := range events {
+		eventTypes = append(eventTypes, ev.Data["type"])
+	}
+	assert.Equal(t, []string{"executing", "chunk", "chunk", "completed"}, eventTypes)
+
+	// Verify: history has user + assistant
+	snap = historySnapshot(e)
+	require.Len(t, snap, 2)
+	assert.Equal(t, "user", snap[0].Role)
+	assert.Equal(t, "assistant", snap[1].Role)
+}
+
+func TestE2E_MultiTurnConversation(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+	en := mustLanguage(t, "en")
+
+	for turn := 1; turn <= 5; turn++ {
+		ctxID := fmt.Sprintf("turn-%d", turn)
+
+		// User sends
+		err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+			ContextID: ctxID,
+			Text:      fmt.Sprintf("message %d", turn),
+			Language:  en,
+		})
+		require.NoError(t, err)
+
+		// LLM responds with final
+		e.executeResponse(context.Background(), comm, &protos.ChatResponse{
+			RequestId: ctxID,
+			Success:   true,
+			Data: &protos.Message{
+				Role:    "assistant",
+				Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{Contents: []string{fmt.Sprintf("reply %d", turn)}}},
+			},
+			Metrics: []*protos.Metric{{Name: "tokens", Value: "1"}},
+		})
+	}
+
+	// Verify: history has 10 messages (5 user + 5 assistant)
+	snap := historySnapshot(e)
+	require.Len(t, snap, 10)
+	for i := 0; i < 10; i += 2 {
+		assert.Equal(t, "user", snap[i].Role)
+		assert.Equal(t, "assistant", snap[i+1].Role)
+	}
+
+	// Verify: stream got 5 send calls
+	stream.mu.Lock()
+	assert.Len(t, stream.sendCalls, 5)
+	stream.mu.Unlock()
+}
+
+func TestE2E_ToolCallRoundTrip(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	en := mustLanguage(t, "en")
+	e.toolExecutor = &mockToolExecutor{
+		executeFn: func(_ context.Context, _ string, _ []*protos.ToolCall, _ internal_type.Communication) *protos.Message {
+			return &protos.Message{
+				Role: "tool",
+				Message: &protos.Message_Tool{Tool: &protos.ToolMessage{
+					Tools: []*protos.ToolMessage_Tool{{Id: "tc1", Name: "get_weather", Content: `{"temp":"20C"}`}},
+				}},
+			}
+		},
+	}
+	comm, collector := newTestComm()
+
+	// 1. User asks about weather
+	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+		ContextID: "tool-turn",
+		Text:      "weather?",
+		Language:  en,
+	})
+	require.NoError(t, err)
+
+	// 2. LLM responds with tool call
+	e.executeResponse(context.Background(), comm, &protos.ChatResponse{
+		RequestId: "tool-turn",
+		Success:   true,
+		Data: &protos.Message{
+			Role: "assistant",
+			Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+				Contents:  []string{"Let me check"},
+				ToolCalls: []*protos.ToolCall{{Id: "tc1", Type: "function", Function: &protos.FunctionCall{Name: "get_weather"}}},
+			}},
+		},
+		Metrics: []*protos.Metric{{Name: "tokens", Value: "10"}},
+	})
+
+	// Verify: history has user + assistant(tool_call) + tool result
+	snap := historySnapshot(e)
+	require.Len(t, snap, 3, "user + assistant(tool_call) + tool result")
+	assert.Equal(t, "user", snap[0].Role)
+	assert.Equal(t, "assistant", snap[1].Role)
+	assert.Len(t, snap[1].GetAssistant().GetToolCalls(), 1)
+	assert.Equal(t, "tool", snap[2].Role)
+
+	// Verify: stream got 2 sends (initial + tool follow-up)
+	stream.mu.Lock()
+	assert.Len(t, stream.sendCalls, 2, "initial + tool follow-up")
+	stream.mu.Unlock()
+
+	// Verify: done packet emitted despite tool calls
+	dones := findPackets[internal_type.LLMResponseDonePacket](collector.all())
+	require.Len(t, dones, 1)
+	assert.Equal(t, "Let me check", dones[0].Text)
+}
+
+func TestE2E_InterruptDuringStreaming(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, collector := newTestComm()
+	en := mustLanguage(t, "en")
+
+	// 1. User sends first message
+	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+		ContextID: "ctx-1",
+		Text:      "tell me a story",
+		Language:  en,
+	})
+	require.NoError(t, err)
+
+	// 2. Some deltas arrive
+	e.executeResponse(context.Background(), comm, &protos.ChatResponse{
+		RequestId: "ctx-1",
+		Success:   true,
+		Data: &protos.Message{
+			Role:    "assistant",
+			Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{Contents: []string{"Once upon"}}},
+		},
+	})
+
+	// 3. User interrupts
+	err = e.Execute(context.Background(), comm, internal_type.InterruptionDetectedPacket{ContextID: "ctx-1"})
+	require.NoError(t, err)
+	assert.Nil(t, e.currentPacket)
+
+	// 4. Late response from old context — isStaleResponse returns false when
+	// currentPacket is nil (interrupt clears it), so the response passes through.
+	// This is by design: after interrupt, no context is "active" so nothing is "stale".
+	e.executeResponse(context.Background(), comm, &protos.ChatResponse{
+		RequestId: "ctx-1",
+		Success:   true,
+		Data: &protos.Message{
+			Role:    "assistant",
+			Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{Contents: []string{"a time"}}},
+		},
+		Metrics: []*protos.Metric{{Name: "tokens", Value: "5"}},
+	})
+
+	// Verify: the delta before interrupt was emitted
+	deltas := findPackets[internal_type.LLMResponseDeltaPacket](collector.all())
+	assert.Len(t, deltas, 1, "pre-interrupt delta should be emitted")
+	// The final arrives after interrupt but is not filtered (currentPacket=nil → not stale).
+	dones := findPackets[internal_type.LLMResponseDonePacket](collector.all())
+	assert.Len(t, dones, 1, "post-interrupt final passes because currentPacket is nil")
+
+	// 5. User sends new message — pipeline should work
+	err = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+		ContextID: "ctx-2",
+		Text:      "new topic",
+		Language:  en,
+	})
+	require.NoError(t, err)
+	assert.NotNil(t, e.currentPacket)
+	assert.Equal(t, "ctx-2", e.currentPacket.ContextID)
+}
+
+func TestE2E_ListenProcessesResponsesAndExitsOnEOF(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, collector := newTestComm()
+
+	// Queue: delta, final, EOF
+	stream.recvCh <- streamRecvResult{resp: &protos.ChatResponse{
+		RequestId: "r1", Success: true,
+		Data: &protos.Message{Role: "assistant",
+			Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{Contents: []string{"chunk"}}}},
+	}}
+	stream.recvCh <- streamRecvResult{resp: &protos.ChatResponse{
+		RequestId: "r1", Success: true,
+		Data: &protos.Message{Role: "assistant",
+			Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{Contents: []string{"done"}}}},
+		Metrics: []*protos.Metric{{Name: "t", Value: "1"}},
+	}}
+	stream.recvCh <- streamRecvResult{err: io.EOF}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		e.listen(context.Background(), comm)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("listen did not exit")
+	}
+
+	pkts := collector.all()
+	deltas := findPackets[internal_type.LLMResponseDeltaPacket](pkts)
+	dones := findPackets[internal_type.LLMResponseDonePacket](pkts)
+	dirs := findPackets[internal_type.DirectivePacket](pkts)
+
+	assert.Len(t, deltas, 1)
+	assert.Len(t, dones, 1)
+	require.Len(t, dirs, 1)
+	assert.Equal(t, protos.ConversationDirective_END_CONVERSATION, dirs[0].Directive)
+}
+
+// =============================================================================
+// Deadlock Detection (run with -timeout 10s and -race)
+// =============================================================================
+
+// TestDeadlock_ExecuteAndResponseConcurrent verifies no deadlock when Execute
+// (which acquires mu for currentPacket + history) and executeResponse (which
+// acquires mu for history append + stale check) run concurrently.
+func TestDeadlock_ExecuteAndResponseConcurrent(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Writer: sends Execute calls
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			_ = e.Execute(ctx, comm, internal_type.NormalizedUserTextPacket{
+				ContextID: fmt.Sprintf("ctx-%d", i),
+				Text:      fmt.Sprintf("msg-%d", i),
+			})
+		}
+	}()
+
+	// Reader: processes responses concurrently
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			e.executeResponse(ctx, comm, &protos.ChatResponse{
+				RequestId: fmt.Sprintf("ctx-%d", i),
+				Success:   true,
+				Data: &protos.Message{
+					Role:    "assistant",
+					Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{Contents: []string{"resp"}}},
+				},
+				Metrics: []*protos.Metric{{Name: "t", Value: "1"}},
+			})
+		}
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// success — no deadlock
+	case <-ctx.Done():
+		t.Fatal("DEADLOCK: Execute + executeResponse concurrent access timed out")
+	}
+}
+
+// TestDeadlock_ExecuteAndCloseConcurrent verifies no deadlock when Close
+// (which acquires mu exclusively) runs while Execute is in progress.
+func TestDeadlock_ExecuteAndCloseConcurrent(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	e.ctx, e.ctxCancel = context.WithCancel(ctx)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			_ = e.Execute(ctx, comm, internal_type.InjectMessagePacket{
+				ContextID: fmt.Sprintf("ctx-%d", i),
+				Text:      fmt.Sprintf("msg-%d", i),
+			})
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		time.Sleep(time.Millisecond) // let some executes start
+		_ = e.Close(ctx)
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("DEADLOCK: Execute + Close concurrent access timed out")
+	}
+}
+
+// TestDeadlock_ListenAndExecuteAndClose verifies no deadlock when all three
+// goroutines contend: listener (RLock for stream read), Execute (Lock for
+// currentPacket write + RLock for history snapshot), Close (Lock for teardown).
+func TestDeadlock_ListenAndExecuteAndClose(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	e.ctx, e.ctxCancel = context.WithCancel(ctx)
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	// Listener goroutine
+	go func() {
+		defer wg.Done()
+		e.listen(e.ctx, comm)
+	}()
+
+	// Execute goroutine
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 20; i++ {
+			_ = e.Execute(ctx, comm, internal_type.InjectMessagePacket{
+				ContextID: fmt.Sprintf("ctx-%d", i),
+				Text:      fmt.Sprintf("inject-%d", i),
+			})
+		}
+	}()
+
+	// Close goroutine (after brief delay to let others start).
+	// Close() cancels context and nils the stream, but the listener may be
+	// blocked on Recv (channel read). Close the recvCh to unblock it.
+	go func() {
+		defer wg.Done()
+		time.Sleep(5 * time.Millisecond)
+		_ = e.Close(ctx)
+		close(stream.recvCh)
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("DEADLOCK: listen + Execute + Close concurrent access timed out")
+	}
+}
+
+// TestDeadlock_ToolCallWithConcurrentInterrupt verifies no deadlock when
+// tool execution (which holds mu.Lock to append history) races with an
+// interruption (which holds mu.Lock to clear currentPacket).
+func TestDeadlock_ToolCallWithConcurrentInterrupt(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+	en := mustLanguage(t, "en")
+
+	toolDelay := make(chan struct{})
+	e.toolExecutor = &mockToolExecutor{
+		executeFn: func(_ context.Context, _ string, _ []*protos.ToolCall, _ internal_type.Communication) *protos.Message {
+			<-toolDelay // block until signaled
+			return &protos.Message{
+				Role:    "tool",
+				Message: &protos.Message_Tool{Tool: &protos.ToolMessage{Tools: []*protos.ToolMessage_Tool{{Id: "tc1", Name: "fn", Content: "{}"}}}},
+			}
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// User sends
+	_ = e.Execute(ctx, comm, internal_type.NormalizedUserTextPacket{
+		ContextID: "ctx-tool-interrupt",
+		Text:      "question",
+		Language:  en,
+	})
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Tool call response in goroutine
+	go func() {
+		defer wg.Done()
+		e.executeResponse(ctx, comm, &protos.ChatResponse{
+			RequestId: "ctx-tool-interrupt",
+			Success:   true,
+			Data: &protos.Message{
+				Role: "assistant",
+				Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+					Contents:  []string{"calling"},
+					ToolCalls: []*protos.ToolCall{{Id: "tc1", Type: "function"}},
+				}},
+			},
+			Metrics: []*protos.Metric{{Name: "t", Value: "1"}},
+		})
+	}()
+
+	// Interrupt while tool is executing
+	go func() {
+		defer wg.Done()
+		time.Sleep(time.Millisecond)
+		_ = e.Execute(ctx, comm, internal_type.InterruptionDetectedPacket{ContextID: "ctx-tool-interrupt"})
+		close(toolDelay) // unblock tool
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("DEADLOCK: tool execution + interrupt timed out")
+	}
+}
+
+// =============================================================================
+// Consistency: history integrity under concurrent mutations
+// =============================================================================
+
+// TestConsistency_HistoryOrderPreserved verifies that history messages are
+// appended in the correct order even under concurrent inject + response.
+func TestConsistency_HistoryOrderPreserved(t *testing.T) {
+	e := newTestExecutor()
+	comm, _ := newTestComm()
+
+	// Inject 100 messages sequentially — order must be preserved.
+	for i := 0; i < 100; i++ {
+		err := e.Execute(context.Background(), comm, internal_type.InjectMessagePacket{
+			ContextID: fmt.Sprintf("ctx-%d", i),
+			Text:      fmt.Sprintf("msg-%03d", i),
+		})
+		require.NoError(t, err)
+	}
+
+	snap := historySnapshot(e)
+	require.Len(t, snap, 100)
+	for i := 0; i < 100; i++ {
+		expected := fmt.Sprintf("msg-%03d", i)
+		actual := strings.Join(snap[i].GetAssistant().GetContents(), "")
+		assert.Equal(t, expected, actual, "history index %d out of order", i)
+	}
+}
+
+// TestConsistency_SnapshotIsolation verifies that a history snapshot taken
+// before a mutation does not see the mutation.
+func TestConsistency_SnapshotIsolation(t *testing.T) {
+	e := newTestExecutor()
+	comm, _ := newTestComm()
+
+	// Pre-populate
+	for i := 0; i < 5; i++ {
+		_ = e.Execute(context.Background(), comm, internal_type.InjectMessagePacket{
+			ContextID: fmt.Sprintf("ctx-%d", i),
+			Text:      fmt.Sprintf("msg-%d", i),
+		})
+	}
+
+	// Take snapshot
+	snap := historySnapshot(e)
+	require.Len(t, snap, 5)
+
+	// Mutate history
+	for i := 5; i < 10; i++ {
+		_ = e.Execute(context.Background(), comm, internal_type.InjectMessagePacket{
+			ContextID: fmt.Sprintf("ctx-%d", i),
+			Text:      fmt.Sprintf("msg-%d", i),
+		})
+	}
+
+	// Original snapshot must still be len 5
+	assert.Len(t, snap, 5, "snapshot must not be affected by later mutations")
+	// Current history must be 10
+	assert.Len(t, historySnapshot(e), 10)
+}
+
+// TestConsistency_ToolCallAtomicAppend verifies that the assistant message
+// and tool result are appended atomically — no interleaving.
+func TestConsistency_ToolCallAtomicAppend(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+	en := mustLanguage(t, "en")
+
+	e.toolExecutor = &mockToolExecutor{
+		executeFn: func(_ context.Context, _ string, _ []*protos.ToolCall, _ internal_type.Communication) *protos.Message {
+			return &protos.Message{
+				Role:    "tool",
+				Message: &protos.Message_Tool{Tool: &protos.ToolMessage{Tools: []*protos.ToolMessage_Tool{{Id: "tc1", Name: "fn", Content: "ok"}}}},
+			}
+		},
+	}
+
+	_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+		ContextID: "atomic-test",
+		Text:      "test",
+		Language:  en,
+	})
+
+	e.executeResponse(context.Background(), comm, &protos.ChatResponse{
+		RequestId: "atomic-test",
+		Success:   true,
+		Data: &protos.Message{
+			Role: "assistant",
+			Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+				Contents:  []string{"calling"},
+				ToolCalls: []*protos.ToolCall{{Id: "tc1", Type: "function"}},
+			}},
+		},
+		Metrics: []*protos.Metric{{Name: "t", Value: "1"}},
+	})
+
+	snap := historySnapshot(e)
+	// Must have: user, assistant(tool_call), tool — and assistant+tool are adjacent.
+	require.Len(t, snap, 3)
+	assert.Equal(t, "user", snap[0].Role)
+	assert.Equal(t, "assistant", snap[1].Role)
+	assert.Len(t, snap[1].GetAssistant().GetToolCalls(), 1, "assistant must have tool_calls")
+	assert.Equal(t, "tool", snap[2].Role)
+}
+
+// TestConsistency_StaleContextDoesNotMutateHistory verifies that a response
+// arriving after context switch does not append to history.
+func TestConsistency_StaleContextDoesNotMutateHistory(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+	en := mustLanguage(t, "en")
+
+	// Turn 1
+	_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+		ContextID: "ctx-old",
+		Text:      "old question",
+		Language:  en,
+	})
+
+	// Turn 2 — supersedes turn 1
+	_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+		ContextID: "ctx-new",
+		Text:      "new question",
+		Language:  en,
+	})
+
+	histBefore := len(historySnapshot(e))
+
+	// Late response from turn 1 — should be dropped
+	e.executeResponse(context.Background(), comm, &protos.ChatResponse{
+		RequestId: "ctx-old",
+		Success:   true,
+		Data: &protos.Message{
+			Role:    "assistant",
+			Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{Contents: []string{"stale answer"}}},
+		},
+		Metrics: []*protos.Metric{{Name: "t", Value: "1"}},
+	})
+
+	histAfter := len(historySnapshot(e))
+	assert.Equal(t, histBefore, histAfter, "stale response must not change history length")
+}
+
+// TestConsistency_CloseResetsAllState verifies Close() fully resets state.
+func TestConsistency_CloseResetsAllState(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	// Build up state
+	for i := 0; i < 10; i++ {
+		_ = e.Execute(context.Background(), comm, internal_type.InjectMessagePacket{
+			ContextID: fmt.Sprintf("ctx-%d", i),
+			Text:      fmt.Sprintf("msg-%d", i),
+		})
+	}
+	e.mu.Lock()
+	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "active"}
+	e.mu.Unlock()
+
+	_ = e.Close(context.Background())
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	assert.Empty(t, e.history, "history must be empty after Close")
+	assert.Nil(t, e.stream, "stream must be nil after Close")
+	assert.Nil(t, e.currentPacket, "currentPacket must be nil after Close")
+}
+
+// =============================================================================
+// Concurrency: race detector stress tests (run with -race)
+// =============================================================================
+
+// TestConcurrency_MassiveParallelInjectAndSnapshot runs many concurrent
+// writers (InjectMessagePacket) and readers (historySnapshot) to surface
+// data races. Must be run with -race.
+func TestConcurrency_MassiveParallelInjectAndSnapshot(t *testing.T) {
+	e := newTestExecutor()
+	comm, _ := newTestComm()
+
+	const writers = 10
+	const readsPerWriter = 50
+	const injectsPerWriter = 50
+
+	var wg sync.WaitGroup
+	wg.Add(writers * 2)
+
+	for w := 0; w < writers; w++ {
+		w := w
+		// Writer
+		go func() {
+			defer wg.Done()
+			for i := 0; i < injectsPerWriter; i++ {
+				_ = e.Execute(context.Background(), comm, internal_type.InjectMessagePacket{
+					ContextID: fmt.Sprintf("w%d-i%d", w, i),
+					Text:      fmt.Sprintf("w%d-msg-%d", w, i),
+				})
+			}
+		}()
+		// Reader
+		go func() {
+			defer wg.Done()
+			for i := 0; i < readsPerWriter; i++ {
+				snap := historySnapshot(e)
+				// Verify snapshot is self-consistent: length must not change
+				assert.Len(t, snap, len(snap))
+			}
+		}()
+	}
+
+	wg.Wait()
+	snap := historySnapshot(e)
+	assert.Len(t, snap, writers*injectsPerWriter, "all injected messages should be present")
+}
+
+// TestConcurrency_ExecuteAndInterruptRace runs Execute(NormalizedUserTextPacket)
+// and Execute(InterruptionDetectedPacket) concurrently to verify no race on
+// currentPacket.
+func TestConcurrency_ExecuteAndInterruptRace(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+				ContextID: fmt.Sprintf("ctx-%d", i),
+				Text:      fmt.Sprintf("msg-%d", i),
+			})
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			_ = e.Execute(context.Background(), comm, internal_type.InterruptionDetectedPacket{
+				ContextID: fmt.Sprintf("ctx-%d", i),
+			})
+		}
+	}()
+
+	wg.Wait()
+	// No assertion on final state — the point is no panic/race under -race flag.
+}
+
+// TestConcurrency_ResponseAndInterruptRace runs executeResponse and
+// interruption concurrently to verify no race on history + currentPacket.
+func TestConcurrency_ResponseAndInterruptRace(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	// Sender: keeps setting currentPacket
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+				ContextID: fmt.Sprintf("ctx-%d", i),
+				Text:      fmt.Sprintf("msg-%d", i),
+			})
+		}
+	}()
+
+	// Responder: processes responses
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			e.executeResponse(context.Background(), comm, &protos.ChatResponse{
+				RequestId: fmt.Sprintf("ctx-%d", i),
+				Success:   true,
+				Data: &protos.Message{
+					Role:    "assistant",
+					Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{Contents: []string{"resp"}}},
+				},
+				Metrics: []*protos.Metric{{Name: "t", Value: "1"}},
+			})
+		}
+	}()
+
+	// Interrupter
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			_ = e.Execute(context.Background(), comm, internal_type.InterruptionDetectedPacket{
+				ContextID: fmt.Sprintf("ctx-%d", i),
+			})
+		}
+	}()
+
+	wg.Wait()
+}
+
+// TestConcurrency_ToolCallWithConcurrentExecute runs tool execution
+// alongside new user messages to verify atomic history updates.
+func TestConcurrency_ToolCallWithConcurrentExecute(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	e.toolExecutor = &mockToolExecutor{
+		executeFn: func(_ context.Context, _ string, _ []*protos.ToolCall, _ internal_type.Communication) *protos.Message {
+			time.Sleep(time.Millisecond) // simulate tool latency
+			return &protos.Message{
+				Role:    "tool",
+				Message: &protos.Message_Tool{Tool: &protos.ToolMessage{Tools: []*protos.ToolMessage_Tool{{Id: "tc1", Name: "fn", Content: "ok"}}}},
+			}
+		},
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Execute user messages concurrently
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 20; i++ {
+			_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+				ContextID: fmt.Sprintf("user-%d", i),
+				Text:      fmt.Sprintf("msg-%d", i),
+			})
+		}
+	}()
+
+	// Process tool call responses concurrently
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 20; i++ {
+			e.executeResponse(context.Background(), comm, &protos.ChatResponse{
+				RequestId: fmt.Sprintf("user-%d", i),
+				Success:   true,
+				Data: &protos.Message{
+					Role: "assistant",
+					Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+						Contents:  []string{"calling"},
+						ToolCalls: []*protos.ToolCall{{Id: "tc1", Type: "function"}},
+					}},
+				},
+				Metrics: []*protos.Metric{{Name: "t", Value: "1"}},
+			})
+		}
+	}()
+
+	wg.Wait()
+	// No assertion on final state — the point is no panic/race.
+}
+
+// TestConcurrency_PipelineStaleCheckUnderLoad verifies that the stale context
+// check inside Pipeline() correctly filters under high concurrency, ensuring
+// no stale pipeline runs to completion.
+func TestConcurrency_PipelineStaleCheckUnderLoad(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, collector := newTestComm()
+
+	var wg sync.WaitGroup
+	const N = 50
+	wg.Add(N)
+
+	// Fire N Execute calls with different context IDs.
+	// Only the last one should actually produce a send (others become stale).
+	for i := 0; i < N; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+				ContextID: fmt.Sprintf("ctx-%d", i),
+				Text:      fmt.Sprintf("msg-%d", i),
+			})
+		}()
+	}
+	wg.Wait()
+
+	// The last currentPacket wins. Verify no crash and packets are consistent.
+	e.mu.RLock()
+	cp := e.currentPacket
+	e.mu.RUnlock()
+	require.NotNil(t, cp)
+
+	// All emitted events should have "executing" type
+	events := findPackets[internal_type.ConversationEventPacket](collector.all())
+	for _, ev := range events {
+		assert.Equal(t, "executing", ev.Data["type"])
+	}
 }

@@ -178,7 +178,7 @@ func (rt *resembleTTS) readLoop(conn *websocket.Conn) {
 			}
 			rt.mu.Unlock()
 			if !metricSent && !startedAt.IsZero() {
-				rt.onPacket(internal_type.MessageMetricPacket{
+				rt.onPacket(internal_type.AssistantMessageMetricPacket{
 					ContextID: contextId,
 					Metrics: []*protos.Metric{{
 						Name:  "tts_latency_ms",
@@ -204,7 +204,7 @@ func (rt *resembleTTS) Transform(ctx context.Context, in internal_type.LLMPacket
 	rt.mu.Unlock()
 
 	switch input := in.(type) {
-	case internal_type.InterruptionPacket:
+	case internal_type.InterruptionDetectedPacket:
 		rt.mu.Lock()
 		rt.contextId = ""
 		rt.ttsStartedAt = time.Time{}

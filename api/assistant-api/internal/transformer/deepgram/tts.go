@@ -152,7 +152,7 @@ func (t *deepgramTTS) readLoop(conn *websocket.Conn) {
 			}
 			t.mu.Unlock()
 			if !metricSent && !startedAt.IsZero() {
-				t.onPacket(internal_type.MessageMetricPacket{
+				t.onPacket(internal_type.AssistantMessageMetricPacket{
 					ContextID: ctxId,
 					Metrics: []*protos.Metric{{
 						Name:  "tts_latency_ms",
@@ -200,7 +200,7 @@ func (t *deepgramTTS) Transform(ctx context.Context, in internal_type.LLMPacket)
 	t.mu.Unlock()
 
 	switch input := in.(type) {
-	case internal_type.InterruptionPacket:
+	case internal_type.InterruptionDetectedPacket:
 		t.mu.Lock()
 		t.contextId = ""
 		t.ttsStartedAt = time.Time{}

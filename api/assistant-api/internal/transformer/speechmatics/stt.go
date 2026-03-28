@@ -188,7 +188,7 @@ func (st *speechmaticsSTT) readLoop(conn *websocket.Conn) {
 			transcript := response.Metadata.Transcript
 			if transcript != "" && ctxId != "" {
 				st.onPacket(
-					internal_type.InterruptionPacket{ContextID: ctxId, Source: "word"},
+					internal_type.InterruptionDetectedPacket{ContextID: ctxId, Source: "word"},
 					internal_type.SpeechToTextPacket{
 						ContextID: ctxId,
 						Script:    transcript,
@@ -206,7 +206,7 @@ func (st *speechmaticsSTT) readLoop(conn *websocket.Conn) {
 			if transcript != "" && ctxId != "" {
 				startedNano := st.startedAtNano.Load()
 				if startedNano > 0 {
-					st.onPacket(internal_type.MessageMetricPacket{
+					st.onPacket(internal_type.UserMessageMetricPacket{
 						ContextID: ctxId,
 						Metrics: []*protos.Metric{{
 							Name:  "stt_latency_ms",
@@ -216,7 +216,7 @@ func (st *speechmaticsSTT) readLoop(conn *websocket.Conn) {
 					st.startedAtNano.Store(0)
 				}
 				st.onPacket(
-					internal_type.InterruptionPacket{ContextID: ctxId, Source: "word"},
+					internal_type.InterruptionDetectedPacket{ContextID: ctxId, Source: "word"},
 					internal_type.SpeechToTextPacket{
 						ContextID: ctxId,
 						Script:    transcript,
@@ -244,7 +244,7 @@ func (st *speechmaticsSTT) readLoop(conn *websocket.Conn) {
 	}
 }
 
-func (st *speechmaticsSTT) Transform(ctx context.Context, in internal_type.UserAudioPacket) error {
+func (st *speechmaticsSTT) Transform(ctx context.Context, in internal_type.UserAudioReceivedPacket) error {
 	st.startedAtNano.CompareAndSwap(0, time.Now().UnixNano())
 
 	st.mu.Lock()

@@ -157,7 +157,7 @@ func (azure *azureTextToSpeech) Transform(ctx context.Context, in internal_type.
 	}
 
 	switch input := in.(type) {
-	case internal_type.InterruptionPacket:
+	case internal_type.InterruptionDetectedPacket:
 		if currentCtx != "" {
 			<-cl.StopSpeakingAsync()
 			azure.mu.Lock()
@@ -213,7 +213,7 @@ func (azCallback *azureTextToSpeech) OnSpeech(event speech.SpeechSynthesisEventA
 	}
 	azCallback.mu.Unlock()
 	if !metricSent && !startedAt.IsZero() {
-		azCallback.onPacket(internal_type.MessageMetricPacket{
+		azCallback.onPacket(internal_type.AssistantMessageMetricPacket{
 			ContextID: ctxId,
 			Metrics: []*protos.Metric{{
 				Name:  "tts_latency_ms",

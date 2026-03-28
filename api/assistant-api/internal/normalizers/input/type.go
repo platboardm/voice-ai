@@ -22,15 +22,11 @@ const (
 
 // PipelineType matches the model-executor pattern: each packet type controls the next transition.
 type PipelineType interface {
-	IsStop() bool
 }
 
 // PipelinePacket carries shared state across normalization pipeline stages.
 type PipelinePacket struct {
 	PipelineType
-
-	// stop signals the pipeline to stop processing and emit no output.
-	Stop bool
 
 	//
 	ContextID string
@@ -40,10 +36,6 @@ type PipelinePacket struct {
 
 	// language attributes for language detection/canonicalization stages to populate and downstream stages to consume.
 	Speechs []internal_type.SpeechToTextPacket
-}
-
-func (p PipelinePacket) IsStop() bool {
-	return p.Stop
 }
 
 // InputPipeline is the first stage for each input packet.
@@ -64,7 +56,7 @@ type DetectLanguageProcessPipeline struct {
 // OutputPipeline emits normalized packet to downstream OnPacket callback.
 type OutputPipeline struct {
 	PipelinePacket
-	Language *types.Language
+	Language types.Language
 }
 
 // InputNormalizer normalizes input packets and emits them via OnPacket at OutputPipeline.

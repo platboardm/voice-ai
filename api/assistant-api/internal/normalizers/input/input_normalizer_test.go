@@ -17,22 +17,16 @@ import (
 
 type parserStub struct {
 	calls int
-	out   *rapida_types.Language
+	out   rapida_types.Language
 	conf  float64
 }
 
-func (p *parserStub) Parse(_ string) (*rapida_types.Language, float64) {
+func (p *parserStub) Parse(_ string) (rapida_types.Language, float64) {
 	p.calls++
 	return p.out, p.conf
 }
 
-type unknownPipeline struct {
-	stop bool
-}
-
-func (p *unknownPipeline) IsStop() bool {
-	return p.stop
-}
+type unknownPipeline struct{}
 
 func newTestNormalizer(t *testing.T, onPacket func(...internal_type.Packet) error) *inputNormalizer {
 	t.Helper()
@@ -44,10 +38,10 @@ func newTestNormalizer(t *testing.T, onPacket func(...internal_type.Packet) erro
 	return n
 }
 
-func mustLanguage(t *testing.T, code string) *rapida_types.Language {
+func mustLanguage(t *testing.T, code string) rapida_types.Language {
 	t.Helper()
 	lang := rapida_types.LookupLanguage(code)
-	if lang == nil {
+	if lang == rapida_types.UNKNOWN_LANGUAGE && code != "unknown" {
 		t.Fatalf("language %q not found", code)
 	}
 	return lang
@@ -100,7 +94,7 @@ func TestInputNormalizer_Normalize_UserTextUsesParserWhenNoChunkLanguage(t *test
 	})
 	n.parser = parser
 
-	if err := n.Normalize(context.Background(), internal_type.UserTextPacket{ContextID: "ctx-2", Text: "hola como estas"}); err != nil {
+	if err := n.Normalize(context.Background(), internal_type.UserTextReceivedPacket{ContextID: "ctx-2", Text: "hola como estas"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if parser.calls != 1 {
@@ -121,7 +115,7 @@ func TestInputNormalizer_Normalize_UserTextUsesProvidedLanguage(t *testing.T) {
 	})
 	n.parser = parser
 
-	if err := n.Normalize(context.Background(), internal_type.UserTextPacket{ContextID: "ctx-2", Text: "hola como estas", Language: "fr"}); err != nil {
+	if err := n.Normalize(context.Background(), internal_type.UserTextReceivedPacket{ContextID: "ctx-2", Text: "hola como estas", Language: "fr"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if parser.calls != 0 {
@@ -133,7 +127,7 @@ func TestInputNormalizer_Normalize_UserTextUsesProvidedLanguage(t *testing.T) {
 	}
 }
 
-func TestInputNormalizer_Normalize_UnknownChunkLanguageDoesNotBiasEnglish(t *testing.T) {
+func TestInputNormalizer_Normalize_UnknownChunkLanguageFallsBackToUnknownOnTie(t *testing.T) {
 	parser := &parserStub{out: mustLanguage(t, "es"), conf: 0.99}
 	emitted := make([]internal_type.Packet, 0)
 	n := newTestNormalizer(t, func(pkts ...internal_type.Packet) error {
@@ -158,13 +152,13 @@ func TestInputNormalizer_Normalize_UnknownChunkLanguageDoesNotBiasEnglish(t *tes
 	}
 
 	out := emitted[0].(internal_type.NormalizedUserTextPacket)
-	if out.Language.ISO639_1 != "fr" {
-		t.Fatalf("expected language fr, got %q", out.Language.ISO639_1)
+	if out.Language.ISO639_1 != "unknown" {
+		t.Fatalf("expected language unknown, got %q", out.Language.ISO639_1)
 	}
 }
 
-func TestInputNormalizer_Normalize_ParserNoMatchLeavesLanguageUnset(t *testing.T) {
-	parser := &parserStub{out: nil}
+func TestInputNormalizer_Normalize_ParserNoMatchUsesUnknownLanguage(t *testing.T) {
+	parser := &parserStub{out: rapida_types.UNKNOWN_LANGUAGE}
 	emitted := make([]internal_type.Packet, 0)
 	n := newTestNormalizer(t, func(pkts ...internal_type.Packet) error {
 		emitted = append(emitted, pkts...)
@@ -172,60 +166,60 @@ func TestInputNormalizer_Normalize_ParserNoMatchLeavesLanguageUnset(t *testing.T
 	})
 	n.parser = parser
 
-	if err := n.Normalize(context.Background(), internal_type.UserTextPacket{ContextID: "ctx-4", Text: "??"}); err != nil {
+	if err := n.Normalize(context.Background(), internal_type.UserTextReceivedPacket{ContextID: "ctx-4", Text: "??"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if parser.calls != 1 {
 		t.Fatalf("expected parser called once, got %d", parser.calls)
 	}
 	out := emitted[0].(internal_type.NormalizedUserTextPacket)
-	if out.Language != nil {
-		t.Fatalf("expected nil language when parser has no match, got %q", out.Language.ISO639_1)
+	if out.Language.ISO639_1 != "unknown" {
+		t.Fatalf("expected unknown language, got %q", out.Language.ISO639_1)
 	}
 }
 
-func TestInputNormalizer_Pipeline_StopAtInput(t *testing.T) {
-	emitted := 0
+func TestInputNormalizer_Pipeline_InputToOutputEmitsPacket(t *testing.T) {
+	emitted := make([]internal_type.Packet, 0)
 	n := newTestNormalizer(t, func(pkts ...internal_type.Packet) error {
-		emitted += len(pkts)
+		emitted = append(emitted, pkts...)
 		return nil
 	})
-	err := n.Pipeline(context.Background(), InputPipeline{PipelinePacket: PipelinePacket{Stop: true, ContextID: "ctx"}})
+	err := n.Pipeline(context.Background(), InputPipeline{PipelinePacket: PipelinePacket{ContextID: "ctx", Speech: "hello"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if emitted != 0 {
-		t.Fatalf("expected no emissions, got %d", emitted)
+	if len(emitted) != 1 {
+		t.Fatalf("expected one emission, got %d", len(emitted))
 	}
 }
 
-func TestInputNormalizer_Pipeline_StopAtProcess(t *testing.T) {
-	emitted := 0
+func TestInputNormalizer_Pipeline_ProcessToOutputEmitsPacket(t *testing.T) {
+	emitted := make([]internal_type.Packet, 0)
 	n := newTestNormalizer(t, func(pkts ...internal_type.Packet) error {
-		emitted += len(pkts)
+		emitted = append(emitted, pkts...)
 		return nil
 	})
-	err := n.Pipeline(context.Background(), DetectLanguageProcessPipeline{ProcessPipeline: ProcessPipeline{PipelinePacket: PipelinePacket{Stop: true, ContextID: "ctx", Speech: "hello"}}})
+	err := n.Pipeline(context.Background(), DetectLanguageProcessPipeline{ProcessPipeline: ProcessPipeline{PipelinePacket: PipelinePacket{ContextID: "ctx", Speech: "hello"}}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if emitted != 0 {
-		t.Fatalf("expected no emissions, got %d", emitted)
+	if len(emitted) != 1 {
+		t.Fatalf("expected one emission, got %d", len(emitted))
 	}
 }
 
-func TestInputNormalizer_Pipeline_StopAtOutput(t *testing.T) {
-	emitted := 0
+func TestInputNormalizer_Pipeline_OutputEmitsPacket(t *testing.T) {
+	emitted := make([]internal_type.Packet, 0)
 	n := newTestNormalizer(t, func(pkts ...internal_type.Packet) error {
-		emitted += len(pkts)
+		emitted = append(emitted, pkts...)
 		return nil
 	})
-	err := n.Pipeline(context.Background(), OutputPipeline{PipelinePacket: PipelinePacket{Stop: true, ContextID: "ctx", Speech: "hello"}, Language: mustLanguage(t, "en")})
+	err := n.Pipeline(context.Background(), OutputPipeline{PipelinePacket: PipelinePacket{ContextID: "ctx", Speech: "hello"}, Language: mustLanguage(t, "en")})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if emitted != 0 {
-		t.Fatalf("expected no emissions, got %d", emitted)
+	if len(emitted) != 1 {
+		t.Fatalf("expected one emission, got %d", len(emitted))
 	}
 }
 

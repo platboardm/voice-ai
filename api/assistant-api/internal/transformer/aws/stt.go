@@ -76,7 +76,7 @@ func (st *awsSTT) Initialize() error {
 	return nil
 }
 
-func (st *awsSTT) Transform(ctx context.Context, in internal_type.UserAudioPacket) error {
+func (st *awsSTT) Transform(ctx context.Context, in internal_type.UserAudioReceivedPacket) error {
 	st.startedAtNano.CompareAndSwap(0, time.Now().UnixNano())
 
 	st.mu.Lock()
@@ -157,7 +157,7 @@ func (st *awsSTT) transcribe(audioData []byte, ctxId string) {
 	if transcript != "" {
 		startedNano := st.startedAtNano.Load()
 		if startedNano > 0 {
-			st.onPacket(internal_type.MessageMetricPacket{
+			st.onPacket(internal_type.UserMessageMetricPacket{
 				ContextID: ctxId,
 				Metrics: []*protos.Metric{{
 					Name:  "stt_latency_ms",
@@ -168,7 +168,7 @@ func (st *awsSTT) transcribe(audioData []byte, ctxId string) {
 		}
 
 		st.onPacket(
-			internal_type.InterruptionPacket{ContextID: ctxId, Source: "word"},
+			internal_type.InterruptionDetectedPacket{ContextID: ctxId, Source: "word"},
 			internal_type.SpeechToTextPacket{
 				ContextID: ctxId,
 				Script:    transcript,

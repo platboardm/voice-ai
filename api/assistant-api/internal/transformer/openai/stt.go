@@ -56,7 +56,7 @@ func (o *openaiSpeechToText) Name() string {
 }
 
 // Transform receives a stream of bytes (audioStream) and prints transcribed text in realtime.
-func (o *openaiSpeechToText) Transform(ctx context.Context, byt internal_type.UserAudioPacket) error {
+func (o *openaiSpeechToText) Transform(ctx context.Context, byt internal_type.UserAudioReceivedPacket) error {
 	return nil
 }
 

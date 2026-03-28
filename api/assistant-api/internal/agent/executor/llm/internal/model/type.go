@@ -10,15 +10,23 @@ import (
 	"github.com/rapidaai/protos"
 )
 
-// Pipeline remains the router contract consumed by Pipeline(...).
-type PipelineType interface{}
+// PipelineType is a sealed marker interface constraining what can enter Pipeline().
+// Only types in this package can satisfy it (unexported method + internal package).
+type PipelineType interface {
+	pipelineMarker()
+}
 
-type PrepareHistoryProcessPipeline struct {
+// PrepareHistoryPipeline snapshots current history and creates the user message.
+type PrepareHistoryPipeline struct {
 	Packet internal_type.NormalizedUserTextPacket
 }
 
-// ArgumentationProcessPipeline carries per-request state across argumentation stages.
-type ArgumentationProcessPipeline struct {
+func (PrepareHistoryPipeline) pipelineMarker() {}
+
+// ArgumentationPipeline carries per-request state through context enrichment.
+// The four buildX methods (assistant, conversation, message, session) are called
+// sequentially to merge prompt context before routing to the output stage.
+type ArgumentationPipeline struct {
 	Packet       internal_type.NormalizedUserTextPacket
 	UserMessage  *protos.Message
 	History      []*protos.Message
@@ -26,57 +34,37 @@ type ArgumentationProcessPipeline struct {
 	ToolFollowUp bool
 }
 
-type AssistantArgumentationProcessPipeline struct {
-	Packet       internal_type.NormalizedUserTextPacket
-	UserMessage  *protos.Message
-	History      []*protos.Message
-	PromptArgs   map[string]interface{}
-	ToolFollowUp bool
-}
+func (ArgumentationPipeline) pipelineMarker() {}
 
-type ConversationArgumentationProcessPipeline struct {
-	Packet       internal_type.NormalizedUserTextPacket
-	UserMessage  *protos.Message
-	History      []*protos.Message
-	PromptArgs   map[string]interface{}
-	ToolFollowUp bool
-}
-
-type MessageArgumentationProcessPipeline struct {
-	Packet       internal_type.NormalizedUserTextPacket
-	UserMessage  *protos.Message
-	History      []*protos.Message
-	PromptArgs   map[string]interface{}
-	ToolFollowUp bool
-}
-
-type SessionArgumentationProcessPipeline struct {
-	Packet       internal_type.NormalizedUserTextPacket
-	UserMessage  *protos.Message
-	History      []*protos.Message
-	PromptArgs   map[string]interface{}
-	ToolFollowUp bool
-}
-
-// Output stages
-type LLMRequestOutputPipeline struct {
+// LLMRequestPipeline emits the "executing" event, sends the chat request, and
+// appends the user message to local history.
+type LLMRequestPipeline struct {
 	Packet      internal_type.NormalizedUserTextPacket
 	UserMessage *protos.Message
 	History     []*protos.Message
 	PromptArgs  map[string]interface{}
 }
 
-type ToolFollowUpOutputPipeline struct {
+func (LLMRequestPipeline) pipelineMarker() {}
+
+// ToolFollowUpPipeline sends a follow-up chat request using the current history
+// (which already includes tool call results).
+type ToolFollowUpPipeline struct {
 	ContextID  string
 	PromptArgs map[string]interface{}
 }
 
-// LocalHistoryOutputPipeline appends a message to local in-memory history.
-type LocalHistoryOutputPipeline struct {
+func (ToolFollowUpPipeline) pipelineMarker() {}
+
+// LocalHistoryPipeline appends a message to local in-memory history.
+type LocalHistoryPipeline struct {
 	Message *protos.Message
 }
 
-// LLMResponsePipeline is the typed response state flowing through stages.
+func (LocalHistoryPipeline) pipelineMarker() {}
+
+// LLMResponsePipeline is the typed response state flowing through validation,
+// emission, and tool follow-up stages.
 type LLMResponsePipeline struct {
 	Response *protos.ChatResponse
 
@@ -84,13 +72,4 @@ type LLMResponsePipeline struct {
 	Metrics []*protos.Metric
 }
 
-// Backward-compatible aliases used by existing tests and call sites.
-type PrepareHistoryPipeline = PrepareHistoryProcessPipeline
-type ArgumentationPipeline = ArgumentationProcessPipeline
-type AssistantArgumentationPipeline = AssistantArgumentationProcessPipeline
-type ConversationArgumentationPipeline = ConversationArgumentationProcessPipeline
-type MessageArgumentationPipeline = MessageArgumentationProcessPipeline
-type SessionArgumentationPipeline = SessionArgumentationProcessPipeline
-type LLMRequestPipeline = LLMRequestOutputPipeline
-type ToolFollowUpExecutePipeline = ToolFollowUpOutputPipeline
-type LocalHistoryPipeline = LocalHistoryOutputPipeline
+func (LLMResponsePipeline) pipelineMarker() {}
