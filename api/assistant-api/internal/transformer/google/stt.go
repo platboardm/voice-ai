@@ -78,25 +78,25 @@ func NewGoogleSpeechToText(ctx context.Context, logger commons.Logger, credentia
 // Transform implements internal_transformer.SpeechToTextTransformer.
 func (google *googleSpeechToText) Transform(c context.Context, in internal_type.UserAudioReceivedPacket) error {
 	google.mu.Lock()
-	strm := google.stream
 	if google.startedAt.IsZero() {
 		google.startedAt = time.Now()
 	}
-	google.mu.Unlock()
-
-	// If the stream was lost (e.g. Google timed out waiting for audio during
-	// slow boot), re-establish it transparently before sending audio.
+	strm := google.stream
 	if strm == nil {
+		// Stream died (e.g. Google idle timeout during slow init) — re-initialize
+		// while holding the lock so concurrent Transform() calls block here
+		// instead of stampeding into parallel re-inits.
 		google.logger.Infof("google-stt: stream not available, re-initializing")
-		if err := google.Initialize(); err != nil {
+		if err := google.initializeStreamLocked(); err != nil {
+			google.mu.Unlock()
 			return fmt.Errorf("google-stt: re-initialize failed: %w", err)
 		}
-		google.mu.Lock()
 		strm = google.stream
-		google.mu.Unlock()
-		if strm == nil {
-			return fmt.Errorf("google-stt: stream not initialized after re-initialize")
-		}
+	}
+	google.mu.Unlock()
+
+	if strm == nil {
+		return fmt.Errorf("google-stt: connection is not initialized")
 	}
 
 	return strm.Send(&speechpb.StreamingRecognizeRequest{
@@ -224,31 +224,12 @@ func (g *googleSpeechToText) recvLoop(stream speechpb.Speech_StreamingRecognizeC
 
 func (google *googleSpeechToText) Initialize() error {
 	start := time.Now()
-	stream, err := google.client.StreamingRecognize(google.ctx)
-	if err != nil {
-		google.logger.Errorf("google-stt: error creating google-stt stream: %v", err)
-		return err
-	}
-
 	google.mu.Lock()
-	if google.stream != nil {
-		_ = google.stream.CloseSend()
-	}
-	google.stream = stream
+	err := google.initializeStreamLocked()
 	google.mu.Unlock()
-
-	if err := stream.Send(&speechpb.StreamingRecognizeRequest{
-		Recognizer: google.GetRecognizer(),
-		StreamingRequest: &speechpb.StreamingRecognizeRequest_StreamingConfig{
-			StreamingConfig: google.SpeechToTextOptions(),
-		},
-	}); err != nil {
-		google.logger.Errorf("google-stt: error creating google-stt stream: %v", err)
+	if err != nil {
 		return err
 	}
-
-	go google.recvLoop(stream)
-	google.logger.Debugf("google-stt: connection established")
 	google.onPacket(internal_type.ConversationEventPacket{
 		Name: "stt",
 		Data: map[string]string{
@@ -258,6 +239,36 @@ func (google *googleSpeechToText) Initialize() error {
 		},
 		Time: time.Now(),
 	})
+	return nil
+}
+
+// initializeStreamLocked opens a new StreamingRecognize gRPC stream, sends the
+// config, and starts recvLoop. Caller MUST hold google.mu.
+func (google *googleSpeechToText) initializeStreamLocked() error {
+	stream, err := google.client.StreamingRecognize(google.ctx)
+	if err != nil {
+		google.logger.Errorf("google-stt: error creating google-stt stream: %v", err)
+		return err
+	}
+
+	if google.stream != nil {
+		_ = google.stream.CloseSend()
+	}
+	google.stream = stream
+
+	if err := stream.Send(&speechpb.StreamingRecognizeRequest{
+		Recognizer: google.GetRecognizer(),
+		StreamingRequest: &speechpb.StreamingRecognizeRequest_StreamingConfig{
+			StreamingConfig: google.SpeechToTextOptions(),
+		},
+	}); err != nil {
+		google.logger.Errorf("google-stt: error sending config: %v", err)
+		google.stream = nil
+		return err
+	}
+
+	go google.recvLoop(stream)
+	google.logger.Debugf("google-stt: connection established")
 	return nil
 }
 
