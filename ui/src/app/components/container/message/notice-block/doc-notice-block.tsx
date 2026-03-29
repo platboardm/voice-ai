@@ -1,9 +1,6 @@
 import { FC } from 'react';
-import { ExternalLink, Info } from 'lucide-react';
-import {
-  BlueNoticeBlock,
-  YellowNoticeBlock,
-} from '@/app/components/container/message/notice-block';
+import { ActionableNotification } from '@carbon/react';
+import { cn } from '@/utils';
 
 export const DocNoticeBlock: FC<{
   children: React.ReactNode;
@@ -16,25 +13,21 @@ export const DocNoticeBlock: FC<{
   linkText = 'Read documentation',
   tone = 'yellow',
 }) => {
-  const Container = tone === 'blue' ? BlueNoticeBlock : YellowNoticeBlock;
-  const linkClassName =
-    tone === 'blue'
-      ? 'ml-auto flex items-center gap-1.5 text-sm font-medium text-blue-700 dark:text-blue-300 hover:underline whitespace-nowrap shrink-0'
-      : 'ml-auto flex items-center gap-1.5 text-sm font-medium text-yellow-700 hover:underline whitespace-nowrap shrink-0';
-
   return (
-    <Container className="flex items-center gap-3">
-    <Info className="shrink-0 w-4 h-4" strokeWidth={1.5} />
-    <div className="text-sm font-medium flex-1">{children}</div>
-    <a
-      target="_blank"
-      href={docUrl}
-      className={linkClassName}
-      rel="noreferrer"
+    <ActionableNotification
+      kind={tone === 'blue' ? 'info' : 'warning'}
+      title=""
+      subtitle={typeof children === 'string' ? children : ''}
+      actionButtonLabel={linkText}
+      onActionButtonClick={() => window.open(docUrl, '_blank')}
+      lowContrast
+      hideCloseButton
+      inline
+      className={cn('!max-w-full notice-link-style')}
     >
-      {linkText}
-      <ExternalLink className="shrink-0 w-3.5 h-3.5" strokeWidth={1.5} />
-    </a>
-    </Container>
+      {typeof children !== 'string' && (
+        <span className="text-sm">{children}</span>
+      )}
+    </ActionableNotification>
   );
 };

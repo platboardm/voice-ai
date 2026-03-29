@@ -4,9 +4,10 @@ import { useCredential } from '@/hooks/use-credential';
 import { useParams } from 'react-router-dom';
 import { Helmet } from '@/app/components/helmet';
 import {
-  IBlueBGArrowButton,
-  ICancelButton,
-} from '@/app/components/form/button';
+  PrimaryButton,
+  SecondaryButton,
+} from '@/app/components/carbon/button';
+import { ButtonSet } from '@carbon/react';
 import { TabForm } from '@/app/components/form/tab-form';
 import { FieldSet } from '@/app/components/form/fieldset';
 import { useConfirmDialog } from '@/app/pages/assistant/actions/hooks/use-confirmation';
@@ -227,23 +228,22 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
             description:
               'Set up a new WebSocket connection to the server where your agent is running.',
             actions: [
-              <ICancelButton
-                className="px-4 rounded-[2px]"
-                onClick={() => showDialog(navigator.goBack)}
-              >
-                Cancel
-              </ICancelButton>,
-              <IBlueBGArrowButton
-                type="button"
-                onClick={() => {
-                  if (validateWebsocket()) {
-                    setActiveTab('commit-assistant');
-                  }
-                }}
-                className="px-4 rounded-[2px]"
-              >
-                Continue
-              </IBlueBGArrowButton>,
+              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                <SecondaryButton size="lg"
+                  onClick={() => showDialog(navigator.goBack)}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton size="lg"
+                  onClick={() => {
+                    if (validateWebsocket()) {
+                      setActiveTab('commit-assistant');
+                    }
+                  }}
+                >
+                  Continue
+                </PrimaryButton>
+              </ButtonSet>,
             ],
             body: (
               <>
@@ -294,21 +294,20 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
             description:
               'Provide a clear description of the changes made in this version to help others understand what has been updated.',
             actions: [
-              <ICancelButton
-                className="px-4 rounded-[2px]"
-                onClick={() => showDialog(navigator.goBack)}
-              >
-                Cancel
-              </ICancelButton>,
-              <IBlueBGArrowButton
-                type="button"
-                onClick={() => {
-                  createProviderModel();
-                }}
-                className="px-4 rounded-[2px]"
-              >
-                Create new version
-              </IBlueBGArrowButton>,
+              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                <SecondaryButton size="lg"
+                  onClick={() => showDialog(navigator.goBack)}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton size="lg"
+                  onClick={() => {
+                    createProviderModel();
+                  }}
+                >
+                  Create new version
+                </PrimaryButton>
+              </ButtonSet>,
             ],
             body: (
               <>

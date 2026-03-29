@@ -14,7 +14,7 @@ import { TablePagination } from '@/app/components/base/tables/table-pagination';
 import { toDate } from '@/utils/date';
 import { useAssistantConversationListPageStore } from '@/hooks/use-assistant-conversation-list-page-store';
 import { AssistantConversation } from '@rapidaai/react';
-import { StatusIndicator } from '@/app/components/indicators/status';
+import { CarbonStatusIndicator } from '@/app/components/carbon/status-indicator';
 import SourceIndicator from '@/app/components/indicators/source';
 import { YellowNoticeBlock } from '@/app/components/container/message/notice-block';
 import { SectionLoader } from '@/app/components/loader/section-loader';
@@ -445,7 +445,7 @@ export function Conversations({ currentAssistant }: ConversationProps) {
                   </TableCell>
                   {assistantConversationListAction.visibleColumn('status') && (
                     <TableCell>
-                      <StatusIndicator
+                      <CarbonStatusIndicator
                         state={getStatusMetric(row.getMetricsList())}
                       />
                     </TableCell>

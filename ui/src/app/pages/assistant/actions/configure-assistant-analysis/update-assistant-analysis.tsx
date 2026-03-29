@@ -2,11 +2,14 @@ import React, { FC, useEffect, useState } from 'react';
 import { useConfirmDialog } from '@/app/pages/assistant/actions/hooks/use-confirmation';
 import { useGlobalNavigation } from '@/hooks/use-global-navigator';
 import {
-  IBlueBGArrowButton,
   IBlueBorderButton,
-  ICancelButton,
   IRedBorderButton,
 } from '@/app/components/form/button';
+import {
+  PrimaryButton,
+  SecondaryButton,
+} from '@/app/components/carbon/button';
+import { ButtonSet } from '@carbon/react';
 import { FieldSet } from '@/app/components/form/fieldset';
 import { FormLabel } from '@/app/components/form-label';
 import { Input } from '@/app/components/form/input';
@@ -212,22 +215,20 @@ export const UpdateAssistantAnalysis: FC<{ assistantId: string }> = ({
             description:
               'Select the endpoint and map the data parameters for analysis.',
             actions: [
-              <ICancelButton
-                className="w-full h-full"
-                type="button"
-                onClick={() => showDialog(navigator.goBack)}
-              >
-                Cancel
-              </ICancelButton>,
-              <IBlueBGArrowButton
-                type="button"
-                className="w-full h-full"
-                onClick={() => {
-                  if (validateConfigure()) setActiveTab('profile');
-                }}
-              >
-                Continue
-              </IBlueBGArrowButton>,
+              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                <SecondaryButton size="lg"
+                  onClick={() => showDialog(navigator.goBack)}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton size="lg"
+                  onClick={() => {
+                    if (validateConfigure()) setActiveTab('profile');
+                  }}
+                >
+                  Continue
+                </PrimaryButton>
+              </ButtonSet>,
             ],
             body: (
               <div className="px-8 pt-6 pb-8 max-w-4xl flex flex-col gap-8">
@@ -333,20 +334,18 @@ export const UpdateAssistantAnalysis: FC<{ assistantId: string }> = ({
             description:
               'Provide a name and set the execution priority for this analysis.',
             actions: [
-              <ICancelButton
-                className="w-full h-full"
-                type="button"
-                onClick={() => showDialog(navigator.goBack)}
-              >
-                Cancel
-              </ICancelButton>,
-              <IBlueBGArrowButton
-                type="button"
-                className="w-full h-full"
-                onClick={onSubmit}
-              >
-                Update analysis
-              </IBlueBGArrowButton>,
+              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                <SecondaryButton size="lg"
+                  onClick={() => showDialog(navigator.goBack)}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton size="lg"
+                  onClick={onSubmit}
+                >
+                  Update analysis
+                </PrimaryButton>
+              </ButtonSet>,
             ],
             body: (
               <div className="px-8 pt-8 pb-8 max-w-2xl flex flex-col gap-10">

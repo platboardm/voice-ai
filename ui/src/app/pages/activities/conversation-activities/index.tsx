@@ -64,14 +64,17 @@ export const ListingPage: FC<{}> = () => {
   const [isTelemetryDialogOpen, setTelemetryDialogOpen] = useState(false);
 
   const handleTraceClick = (trace: AssistantConversationMessage) => {
+    const stripPrefix = (id?: string): string =>
+      id?.replace(/^(user-|assistant-)/, '') || '';
+
     const convCtr = new Criteria();
     convCtr.setKey('conversationId');
     convCtr.setLogic('match');
     convCtr.setValue(trace.getAssistantconversationid());
     const msgCtr = new Criteria();
-    msgCtr.setKey('messageId');
+    msgCtr.setKey('contextId');
     msgCtr.setLogic('match');
-    msgCtr.setValue(trace.getMessageid());
+    msgCtr.setValue(stripPrefix(trace.getMessageid()));
     setCriterias([convCtr, msgCtr]);
     setTelemetryAssistantId(trace.getAssistantid());
     setTelemetryDialogOpen(true);
@@ -334,7 +337,7 @@ export const ListingPage: FC<{}> = () => {
             }}
           >
             <TooltipPlus
-              className="bg-white dark:bg-gray-950 border-[0.5px] rounded-[2px] px-0 py-0"
+              className="bg-white dark:bg-gray-950 border-[0.5px] rounded-xs px-0 py-0"
               popupContent={
                 <div className="px-3 py-2 text-sm text-gray-600 dark:text-gray-500">
                   Filter
@@ -351,7 +354,7 @@ export const ListingPage: FC<{}> = () => {
             }}
           >
             <TooltipPlus
-              className="bg-white dark:bg-gray-950 border-[0.5px] rounded-[2px] px-0 py-0"
+              className="bg-white dark:bg-gray-950 border-[0.5px] rounded-xs px-0 py-0"
               popupContent={
                 <div className="px-3 py-2 text-sm text-gray-600 dark:text-gray-500">
                   Export as report
@@ -383,7 +386,7 @@ export const ListingPage: FC<{}> = () => {
           {conversationLogAction.assistantMessages.map((row, idx) => (
             <TableRow key={idx} data-id={row.getId()}>
               {conversationLogAction.visibleColumn('id') && (
-                <TableCell>{row.getMessageid().split('-')[0]}</TableCell>
+                <TableCell>{row.getMessageid().split('-').pop()}</TableCell>
               )}
               {conversationLogAction.visibleColumn('version') && (
                 <TableCell>vrsn_{row.getAssistantprovidermodelid()}</TableCell>
@@ -391,7 +394,9 @@ export const ListingPage: FC<{}> = () => {
               {conversationLogAction.visibleColumn(
                 'assistant_conversation_id',
               ) && (
-                <LinkCell to={`/deployment/assistant/${row.getAssistantid()}/sessions/${row.getAssistantconversationid()}`}>
+                <LinkCell
+                  to={`/deployment/assistant/${row.getAssistantid()}/sessions/${row.getAssistantconversationid()}`}
+                >
                   {row.getAssistantconversationid()}
                 </LinkCell>
               )}
@@ -451,7 +456,7 @@ export const ListingPage: FC<{}> = () => {
                   href={`/deployment/assistant/${row.getAssistantid()}/sessions/${row.getAssistantconversationid()}`}
                 >
                   <TooltipPlus
-                    className="bg-white dark:bg-gray-950 border-[0.5px] rounded-[2px] px-0 py-0"
+                    className="bg-white dark:bg-gray-950 border-[0.5px] rounded-xs px-0 py-0"
                     popupContent={
                       <div className="px-3 py-2 text-sm text-gray-600 dark:text-gray-500">
                         View conversation

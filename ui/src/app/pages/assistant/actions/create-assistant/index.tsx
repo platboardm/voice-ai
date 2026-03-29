@@ -3,9 +3,10 @@ import { Helmet } from '@/app/components/helmet';
 import { useRapidaStore } from '@/hooks';
 import { TabForm } from '@/app/components/form/tab-form';
 import {
-  IBlueBGArrowButton,
-  ICancelButton,
-} from '@/app/components/form/button';
+  PrimaryButton,
+  SecondaryButton,
+} from '@/app/components/carbon/button';
+import { ButtonSet } from '@carbon/react';
 import {
   Assistant,
   ConnectionConfig,
@@ -485,22 +486,21 @@ export function CreateAssistantPage() {
               </>
             ),
             actions: [
-              <ICancelButton
-                className="w-full h-full"
-                onClick={() => showDialog(goBack)}
-              >
-                Cancel
-              </ICancelButton>,
-              <IBlueBGArrowButton
-                type="button"
-                isLoading={loading}
-                className="w-full h-full"
-                onClick={() => {
-                  if (validateInstruction()) setActiveTab('tools');
-                }}
-              >
-                Continue
-              </IBlueBGArrowButton>,
+              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                <SecondaryButton size="lg"
+                  onClick={() => showDialog(goBack)}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton size="lg"
+                  isLoading={loading}
+                  onClick={() => {
+                    if (validateInstruction()) setActiveTab('tools');
+                  }}
+                >
+                  Continue
+                </PrimaryButton>
+              </ButtonSet>,
             ],
           },
           {
@@ -509,28 +509,27 @@ export function CreateAssistantPage() {
             description:
               'Let your assistant work with different tools on behalf of you.',
             actions: [
-              <ICancelButton
-                className="w-full h-full"
-                onClick={() => showDialog(goBack)}
-              >
-                Cancel
-              </ICancelButton>,
-              <IBlueBGArrowButton
-                type="button"
-                isLoading={loading}
-                className="w-full h-full"
-                onClick={() => {
-                  if (tools.length === 0) {
-                    setTools([]);
-                    setErrorMessage('');
-                    setActiveTab('define-assistant');
-                    return;
-                  }
-                  if (validateTool()) setActiveTab('define-assistant');
-                }}
-              >
-                {tools.length === 0 ? 'Skip for now' : 'Continue'}
-              </IBlueBGArrowButton>,
+              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                <SecondaryButton size="lg"
+                  onClick={() => showDialog(goBack)}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton size="lg"
+                  isLoading={loading}
+                  onClick={() => {
+                    if (tools.length === 0) {
+                      setTools([]);
+                      setErrorMessage('');
+                      setActiveTab('define-assistant');
+                      return;
+                    }
+                    if (validateTool()) setActiveTab('define-assistant');
+                  }}
+                >
+                  {tools.length === 0 ? 'Skip for now' : 'Continue'}
+                </PrimaryButton>
+              </ButtonSet>,
             ],
             body: (
               <div className="relative flex flex-col flex-1">
@@ -667,20 +666,19 @@ export function CreateAssistantPage() {
             description:
               'Provide the name, a brief description, and relevant tags for your assistant to help identify and categorize it.',
             actions: [
-              <ICancelButton
-                className="w-full h-full"
-                onClick={() => showDialog(goBack)}
-              >
-                Cancel
-              </ICancelButton>,
-              <IBlueBGArrowButton
-                isLoading={loading}
-                type="button"
-                onClick={createAssistant}
-                className="w-full h-full"
-              >
-                Create assistant
-              </IBlueBGArrowButton>,
+              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                <SecondaryButton size="lg"
+                  onClick={() => showDialog(goBack)}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton size="lg"
+                  isLoading={loading}
+                  onClick={createAssistant}
+                >
+                  Create assistant
+                </PrimaryButton>
+              </ButtonSet>,
             ],
             body: (
               <div className="px-8 pt-8 pb-8 max-w-2xl flex flex-col gap-10">

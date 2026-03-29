@@ -11,9 +11,10 @@ import { useRapidaStore } from '@/hooks';
 import { connectionConfig } from '@/configs';
 import toast from 'react-hot-toast/headless';
 import {
-  IBlueBGArrowButton,
-  ICancelButton,
-} from '@/app/components/form/button';
+  PrimaryButton,
+  SecondaryButton,
+} from '@/app/components/carbon/button';
+import { ButtonSet } from '@carbon/react';
 import { FieldSet } from '@/app/components/form/fieldset';
 import { InputCheckbox } from '@/app/components/form/checkbox';
 import { InputHelper } from '@/app/components/input-helper';
@@ -178,24 +179,19 @@ export const UpdateAssistantTelemetry: FC<{ assistantId: string }> = ({
         </div>
 
         <PageActionButtonBlock errorMessage={errorMessage}>
-          <div className="flex-1 h-full flex">
-            <ICancelButton
-              className="w-full h-full"
+          <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+            <SecondaryButton size="lg"
               onClick={() => showDialog(navigator.goBack)}
             >
               Cancel
-            </ICancelButton>
-          </div>
-          <div className="flex-1 h-full flex">
-            <IBlueBGArrowButton
-              type="button"
-              className="w-full h-full"
+            </SecondaryButton>
+            <PrimaryButton size="lg"
               isLoading={loading}
               onClick={onSubmit}
             >
               Save telemetry
-            </IBlueBGArrowButton>
-          </div>
+            </PrimaryButton>
+          </ButtonSet>
         </PageActionButtonBlock>
       </div>
     </>

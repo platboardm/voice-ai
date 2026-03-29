@@ -1,5 +1,5 @@
 import React, { FC, useEffect, useState } from 'react';
-import { IBlueBGButton, ICancelButton } from '@/app/components/form/button';
+import { PrimaryButton, SecondaryButton } from '@/app/components/carbon/button';
 import {
   BuildinTool,
   BuildinToolConfig,
@@ -7,12 +7,9 @@ import {
   GetDefaultToolDefintion,
   ValidateToolDefaultOptions,
 } from '@/app/components/tools';
-import { GenericModal, ModalProps } from '@/app/components/base/modal';
-import { ModalFitHeightBlock } from '@/app/components/blocks/modal-fit-height-block';
-import { ModalHeader } from '@/app/components/base/modal/modal-header';
-import { ModalTitleBlock } from '@/app/components/blocks/modal-title-block';
-import { ModalBody } from '@/app/components/base/modal/modal-body';
-import { ModalFooter } from '@/app/components/base/modal/modal-footer';
+import { ModalProps } from '@/app/components/base/modal';
+import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/app/components/carbon/modal';
+import { ErrorMessage } from '@/app/components/form/error-message';
 
 interface ConfigureAssistantToolDialogProps extends ModalProps {
   initialData: {
@@ -182,42 +179,40 @@ export const ConfigureAssistantToolDialog: FC<
   };
 
   return (
-    <GenericModal
-      className="flex"
-      modalOpen={props.modalOpen}
-      setModalOpen={props.setModalOpen}
-    >
-      <ModalFitHeightBlock className="w-[1000px]">
-        <ModalHeader
-          onClose={() => {
+    <Modal open={props.modalOpen} onClose={() => props.setModalOpen(false)} size="lg">
+      <ModalHeader
+        title="Configure Assistant Tool"
+        onClose={() => {
+          props.setModalOpen(false);
+        }}
+      />
+      <ModalBody hasForm className="overflow-auto max-h-[80dvh] px-0 space-y-0">
+        <BuildinTool
+          onChangeToolDefinition={setToolDefinition}
+          toolDefinition={toolDefinition}
+          onChangeBuildinTool={onChangeBuildinToolConfig}
+          onChangeConfig={setBuildinToolConfig}
+          config={buildinToolConfig}
+        />
+        {errorMessage && (
+          <div className="px-4 pb-4">
+            <ErrorMessage message={errorMessage} />
+          </div>
+        )}
+      </ModalBody>
+      <ModalFooter>
+        <SecondaryButton
+          size="lg"
+          onClick={() => {
             props.setModalOpen(false);
           }}
-          title={'Configure Assistant Tool'}
         >
-          <ModalTitleBlock>Configure Assistant Tool</ModalTitleBlock>
-        </ModalHeader>
-        <ModalBody className="overflow-auto max-h-[80dvh] px-0 space-y-0">
-          <BuildinTool
-            onChangeToolDefinition={setToolDefinition}
-            toolDefinition={toolDefinition}
-            onChangeBuildinTool={onChangeBuildinToolConfig}
-            onChangeConfig={setBuildinToolConfig}
-            config={buildinToolConfig}
-          />
-        </ModalBody>
-        <ModalFooter errorMessage={errorMessage}>
-          <ICancelButton
-            onClick={() => {
-              props.setModalOpen(false);
-            }}
-          >
-            Cancel
-          </ICancelButton>
-          <IBlueBGButton type="button" onClick={onSubmit}>
-            Save tool
-          </IBlueBGButton>
-        </ModalFooter>
-      </ModalFitHeightBlock>
-    </GenericModal>
+          Cancel
+        </SecondaryButton>
+        <PrimaryButton size="lg" type="button" onClick={onSubmit}>
+          Save tool
+        </PrimaryButton>
+      </ModalFooter>
+    </Modal>
   );
 };

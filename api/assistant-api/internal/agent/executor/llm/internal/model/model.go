@@ -665,8 +665,10 @@ func (e *modelAssistantExecutor) executeResponse(ctx context.Context, communicat
 func (e *modelAssistantExecutor) stageValidateResponse(ctx context.Context, communication internal_type.Communication, pipeline LLMResponsePipeline) (LLMResponsePipeline, error) {
 	contextID := pipeline.Response.GetRequestId()
 	pipeline.Output = pipeline.Response.GetData()
-	pipeline.Metrics = pipeline.Response.GetMetrics()
 
+	//
+	pipeline.Metrics = pipeline.Response.GetMetrics()
+	//
 	if !pipeline.Response.GetSuccess() && pipeline.Response.GetError() != nil {
 		errMsg := pipeline.Response.GetError().GetErrorMessage()
 		communication.OnPacket(ctx,
@@ -693,13 +695,9 @@ func (e *modelAssistantExecutor) stageValidateResponse(ctx context.Context, comm
 
 func (e *modelAssistantExecutor) stageEmitResponseUpstream(ctx context.Context, communication internal_type.Communication, pipeline LLMResponsePipeline) error {
 	contextID := pipeline.Response.GetRequestId()
-	if len(pipeline.Metrics) > 0 {
-		hasToolCalls := len(pipeline.Output.GetAssistant().GetToolCalls()) > 0
-		if !hasToolCalls {
-			e.mu.Lock()
-			e.history = append(e.history, pipeline.Output)
-			e.mu.Unlock()
-		}
+	hasToolCalls := len(pipeline.Output.GetAssistant().GetToolCalls()) > 0
+
+	if hasToolCalls {
 		responseText := strings.Join(pipeline.Output.GetAssistant().GetContents(), "")
 		now := time.Now()
 		communication.OnPacket(ctx,
@@ -725,6 +723,10 @@ func (e *modelAssistantExecutor) stageEmitResponseUpstream(ctx context.Context, 
 		)
 		return nil
 	}
+
+	e.mu.Lock()
+	e.history = append(e.history, pipeline.Output)
+	e.mu.Unlock()
 	if len(pipeline.Output.GetAssistant().GetContents()) > 0 {
 		text := strings.Join(pipeline.Output.GetAssistant().GetContents(), "")
 		communication.OnPacket(ctx,
@@ -748,9 +750,6 @@ func (e *modelAssistantExecutor) stageEmitResponseUpstream(ctx context.Context, 
 }
 
 func (e *modelAssistantExecutor) stageToolFollowUpResponse(ctx context.Context, communication internal_type.Communication, pipeline LLMResponsePipeline) error {
-	if len(pipeline.Metrics) == 0 {
-		return nil
-	}
 	hasToolCalls := len(pipeline.Output.GetAssistant().GetToolCalls()) > 0
 	if !hasToolCalls {
 		return nil

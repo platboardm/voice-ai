@@ -41,9 +41,10 @@ import {
 } from '@/app/components/providers/telephony';
 import { TabForm } from '@/app/components/form/tab-form';
 import {
-  IBlueBGArrowButton,
-  ICancelButton,
-} from '@/app/components/form/button';
+  PrimaryButton,
+  SecondaryButton,
+} from '@/app/components/carbon/button';
+import { ButtonSet } from '@carbon/react';
 
 const STEPS = [
   {
@@ -405,19 +406,21 @@ const ConfigureAssistantCallDeployment: FC<{ assistantId: string }> = ({
               />
             ),
             actions: [
-              <ICancelButton
-                className="w-full h-full"
-                onClick={() => goToDeploymentAssistant(assistantId)}
-              >
-                Cancel
-              </ICancelButton>,
-              <IBlueBGArrowButton
-                type="button"
-                className="w-full h-full"
-                onClick={handleNext}
-              >
-                Next
-              </IBlueBGArrowButton>,
+              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                <SecondaryButton size="lg"
+                  className="w-full h-full"
+                  onClick={() => goToDeploymentAssistant(assistantId)}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton size="lg"
+                  type="button"
+                  className="w-full h-full"
+                  onClick={handleNext}
+                >
+                  Next
+                </PrimaryButton>
+              </ButtonSet>,
             ],
           },
           {
@@ -432,19 +435,21 @@ const ConfigureAssistantCallDeployment: FC<{ assistantId: string }> = ({
               />
             ),
             actions: [
-              <ICancelButton
-                className="w-full h-full"
-                onClick={() => goToDeploymentAssistant(assistantId)}
-              >
-                Cancel
-              </ICancelButton>,
-              <IBlueBGArrowButton
-                type="button"
-                className="w-full h-full"
-                onClick={handleNext}
-              >
-                Next
-              </IBlueBGArrowButton>,
+              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                <SecondaryButton size="lg"
+                  className="w-full h-full"
+                  onClick={() => goToDeploymentAssistant(assistantId)}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton size="lg"
+                  type="button"
+                  className="w-full h-full"
+                  onClick={handleNext}
+                >
+                  Next
+                </PrimaryButton>
+              </ButtonSet>,
             ],
           },
           {
@@ -459,19 +464,21 @@ const ConfigureAssistantCallDeployment: FC<{ assistantId: string }> = ({
               />
             ),
             actions: [
-              <ICancelButton
-                className="w-full h-full"
-                onClick={() => goToDeploymentAssistant(assistantId)}
-              >
-                Cancel
-              </ICancelButton>,
-              <IBlueBGArrowButton
-                type="button"
-                className="w-full h-full"
-                onClick={handleNext}
-              >
-                Next
-              </IBlueBGArrowButton>,
+              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                <SecondaryButton size="lg"
+                  className="w-full h-full"
+                  onClick={() => goToDeploymentAssistant(assistantId)}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton size="lg"
+                  type="button"
+                  className="w-full h-full"
+                  onClick={handleNext}
+                >
+                  Next
+                </PrimaryButton>
+              </ButtonSet>,
             ],
           },
           {
@@ -486,21 +493,23 @@ const ConfigureAssistantCallDeployment: FC<{ assistantId: string }> = ({
               />
             ),
             actions: [
-              <ICancelButton
-                className="w-full h-full"
-                onClick={() => goToDeploymentAssistant(assistantId)}
-              >
-                Cancel
-              </ICancelButton>,
-              <IBlueBGArrowButton
-                type="button"
-                className="w-full h-full"
-                isLoading={isDeploying}
-                disabled={isDeploying}
-                onClick={handleDeployPhone}
-              >
-                Deploy Phone
-              </IBlueBGArrowButton>,
+              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                <SecondaryButton size="lg"
+                  className="w-full h-full"
+                  onClick={() => goToDeploymentAssistant(assistantId)}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton size="lg"
+                  type="button"
+                  className="w-full h-full"
+                  isLoading={isDeploying}
+                  disabled={isDeploying}
+                  onClick={handleDeployPhone}
+                >
+                  Deploy Phone
+                </PrimaryButton>
+              </ButtonSet>,
             ],
           },
         ]}

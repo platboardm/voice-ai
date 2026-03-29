@@ -28,9 +28,10 @@ type googleSpeechToText struct {
 
 	logger commons.Logger
 
-	client   *speech.Client
-	stream   speechpb.Speech_StreamingRecognizeClient
-	onPacket func(pkt ...internal_type.Packet) error
+	client        *speech.Client
+	stream        speechpb.Speech_StreamingRecognizeClient
+	streamFactory func(ctx context.Context) (speechpb.Speech_StreamingRecognizeClient, error)
+	onPacket      func(pkt ...internal_type.Packet) error
 
 	// context management
 	ctx       context.Context
@@ -65,14 +66,18 @@ func NewGoogleSpeechToText(ctx context.Context, logger commons.Logger, credentia
 	xctx, contextCancel := context.WithCancel(ctx)
 	// Context for callback management
 	logger.Benchmark("google.NewGoogleSpeechToText", time.Since(start))
-	return &googleSpeechToText{
+	g := &googleSpeechToText{
 		ctx:          xctx,
 		ctxCancel:    contextCancel,
 		logger:       logger,
 		client:       client,
 		googleOption: googleOption,
 		onPacket:     onPacket,
-	}, nil
+	}
+	g.streamFactory = func(ctx context.Context) (speechpb.Speech_StreamingRecognizeClient, error) {
+		return client.StreamingRecognize(ctx)
+	}
+	return g, nil
 }
 
 // Transform implements internal_transformer.SpeechToTextTransformer.
@@ -82,17 +87,6 @@ func (google *googleSpeechToText) Transform(c context.Context, in internal_type.
 		google.startedAt = time.Now()
 	}
 	strm := google.stream
-	if strm == nil {
-		// Stream died (e.g. Google idle timeout during slow init) — re-initialize
-		// while holding the lock so concurrent Transform() calls block here
-		// instead of stampeding into parallel re-inits.
-		google.logger.Infof("google-stt: stream not available, re-initializing")
-		if err := google.initializeStreamLocked(); err != nil {
-			google.mu.Unlock()
-			return fmt.Errorf("google-stt: re-initialize failed: %w", err)
-		}
-		strm = google.stream
-	}
 	google.mu.Unlock()
 
 	if strm == nil {
@@ -122,15 +116,23 @@ func (g *googleSpeechToText) recvLoop(stream speechpb.Speech_StreamingRecognizeC
 				return
 			}
 			g.logger.Errorf("google-stt: recv error: %v", err)
-			// Mark stream as dead so Transform() can re-initialize on next audio packet.
+
+			// Acquire lock and reinitialize the stream immediately
 			g.mu.Lock()
 			g.stream = nil
+			if reinitErr := g.initializeStreamLocked(); reinitErr != nil {
+				g.mu.Unlock()
+				g.logger.Errorf("google-stt: re-initialize failed: %v", reinitErr)
+				g.onPacket(internal_type.ConversationEventPacket{
+					Name: "stt",
+					Data: map[string]string{"type": "error", "error": err.Error()},
+					Time: time.Now(),
+				})
+				return
+			}
 			g.mu.Unlock()
-			g.onPacket(internal_type.ConversationEventPacket{
-				Name: "stt",
-				Data: map[string]string{"type": "error", "error": err.Error()},
-				Time: time.Now(),
-			})
+			g.logger.Infof("google-stt: stream re-initialized after error")
+			// New recvLoop was started by initializeStreamLocked, exit this one
 			return
 		}
 		if resp == nil {
@@ -245,7 +247,7 @@ func (google *googleSpeechToText) Initialize() error {
 // initializeStreamLocked opens a new StreamingRecognize gRPC stream, sends the
 // config, and starts recvLoop. Caller MUST hold google.mu.
 func (google *googleSpeechToText) initializeStreamLocked() error {
-	stream, err := google.client.StreamingRecognize(google.ctx)
+	stream, err := google.streamFactory(google.ctx)
 	if err != nil {
 		google.logger.Errorf("google-stt: error creating google-stt stream: %v", err)
 		return err

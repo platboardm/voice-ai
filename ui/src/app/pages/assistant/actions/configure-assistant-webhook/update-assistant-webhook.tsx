@@ -3,11 +3,14 @@ import { useParams } from 'react-router-dom';
 import { useConfirmDialog } from '@/app/pages/assistant/actions/hooks/use-confirmation';
 import { useGlobalNavigation } from '@/hooks/use-global-navigator';
 import {
-  IBlueBGArrowButton,
   IBlueBorderButton,
-  ICancelButton,
   IRedBorderButton,
 } from '@/app/components/form/button';
+import {
+  PrimaryButton,
+  SecondaryButton,
+} from '@/app/components/carbon/button';
+import { ButtonSet } from '@carbon/react';
 import { FieldSet } from '@/app/components/form/fieldset';
 import { FormLabel } from '@/app/components/form-label';
 import { Input } from '@/app/components/form/input';
@@ -269,22 +272,20 @@ export const UpdateAssistantWebhook: FC<{ assistantId: string }> = ({
             description:
               'Configure the HTTP endpoint that will receive webhook events.',
             actions: [
-              <ICancelButton
-                className="w-full h-full"
-                type="button"
-                onClick={() => showDialog(navigator.goBack)}
-              >
-                Cancel
-              </ICancelButton>,
-              <IBlueBGArrowButton
-                type="button"
-                className="w-full h-full"
-                onClick={() => {
-                  if (validateDestination()) setActiveTab('payload');
-                }}
-              >
-                Continue
-              </IBlueBGArrowButton>,
+              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                <SecondaryButton size="lg"
+                  onClick={() => showDialog(navigator.goBack)}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton size="lg"
+                  onClick={() => {
+                    if (validateDestination()) setActiveTab('payload');
+                  }}
+                >
+                  Continue
+                </PrimaryButton>
+              </ButtonSet>,
             ],
             body: (
               <div className="px-8 pt-6 pb-8 max-w-4xl flex flex-col gap-8">
@@ -335,22 +336,20 @@ export const UpdateAssistantWebhook: FC<{ assistantId: string }> = ({
             description:
               'Define the headers and data fields included in each webhook call.',
             actions: [
-              <ICancelButton
-                className="w-full h-full"
-                type="button"
-                onClick={() => showDialog(navigator.goBack)}
-              >
-                Cancel
-              </ICancelButton>,
-              <IBlueBGArrowButton
-                type="button"
-                className="w-full h-full"
-                onClick={() => {
-                  if (validatePayload()) setActiveTab('events');
-                }}
-              >
-                Continue
-              </IBlueBGArrowButton>,
+              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                <SecondaryButton size="lg"
+                  onClick={() => showDialog(navigator.goBack)}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton size="lg"
+                  onClick={() => {
+                    if (validatePayload()) setActiveTab('events');
+                  }}
+                >
+                  Continue
+                </PrimaryButton>
+              </ButtonSet>,
             ],
             body: (
               <div className="px-8 pt-6 pb-8 max-w-4xl flex flex-col gap-8">
@@ -515,21 +514,19 @@ export const UpdateAssistantWebhook: FC<{ assistantId: string }> = ({
             description:
               'Choose which events trigger the webhook and configure retry behavior.',
             actions: [
-              <ICancelButton
-                className="w-full h-full"
-                type="button"
-                onClick={() => showDialog(navigator.goBack)}
-              >
-                Cancel
-              </ICancelButton>,
-              <IBlueBGArrowButton
-                type="button"
-                isLoading={loading}
-                className="w-full h-full"
-                onClick={onSubmit}
-              >
-                Update webhook
-              </IBlueBGArrowButton>,
+              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                <SecondaryButton size="lg"
+                  onClick={() => showDialog(navigator.goBack)}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton size="lg"
+                  isLoading={loading}
+                  onClick={onSubmit}
+                >
+                  Update webhook
+                </PrimaryButton>
+              </ButtonSet>,
             ],
             body: (
               <div className="px-8 pt-6 pb-8 max-w-4xl flex flex-col gap-8">

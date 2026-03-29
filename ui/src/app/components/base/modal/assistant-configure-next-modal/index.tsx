@@ -1,11 +1,7 @@
-import { GenericModal, ModalProps } from '@/app/components/base/modal';
-import { ModalBody } from '@/app/components/base/modal/modal-body';
-import { ModalFooter } from '@/app/components/base/modal/modal-footer';
-import { ModalHeader } from '@/app/components/base/modal/modal-header';
-import { ModalFitHeightBlock } from '@/app/components/blocks/modal-fit-height-block';
-import { ModalTitleBlock } from '@/app/components/blocks/modal-title-block';
+import { ModalProps } from '@/app/components/base/modal';
+import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/app/components/carbon/modal';
 import { SectionDivider } from '@/app/components/blocks/section-divider';
-import { IBlueBGButton, ICancelButton } from '@/app/components/form/button';
+import { PrimaryButton, SecondaryButton } from '@/app/components/carbon/button';
 import {
   BarChart2,
   Bug,
@@ -98,124 +94,117 @@ export const ConfigureAssistantNextDialog: FC<
   const automationOptions = makeAutomationOptions(assistantId, nav);
 
   return (
-    <GenericModal
-      className="flex"
-      modalOpen={modalOpen}
-      setModalOpen={setModalOpen}
-    >
-      <ModalFitHeightBlock className="w-[860px]">
-        {/* ── Header ───────────────────────────────────────────────── */}
-        <ModalHeader onClose={() => setModalOpen(false)}>
-          <ModalTitleBlock>Assistant created</ModalTitleBlock>
-        </ModalHeader>
+    <Modal open={modalOpen} onClose={() => setModalOpen(false)} size="lg">
+      {/* ── Header ───────────────────────────────────────────────── */}
+      <ModalHeader title="Assistant created" onClose={() => setModalOpen(false)} />
 
-        {/* ── Body ─────────────────────────────────────────────────── */}
-        <ModalBody className="overflow-y-auto max-h-[68dvh] px-6 py-6 flex flex-col gap-8">
-          {/* Deployment channels */}
-          <div className="flex flex-col gap-4">
-            <SectionDivider label="Deployment Channels" />
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-gray-200 dark:bg-gray-800">
-              {deploymentOptions.map(option => (
-                <button
-                  key={option.title}
-                  type="button"
-                  onClick={option.onClick}
-                  className="
-                    bg-white dark:bg-gray-900
-                    p-4 flex flex-col text-left
-                    group cursor-pointer
-                    hover:bg-gray-50 dark:hover:bg-gray-800/60
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary
-                    transition-colors duration-100
-                  "
-                >
-                  {/* Icon */}
-                  <div className="w-8 h-8 flex items-center justify-center bg-gray-100 dark:bg-gray-800 group-hover:bg-primary/10 mb-3 shrink-0 transition-colors duration-100">
-                    <option.icon
-                      className="w-4 h-4 text-gray-600 dark:text-gray-400 group-hover:text-primary transition-colors duration-100"
-                      strokeWidth={1.5}
-                    />
-                  </div>
+      {/* ── Body ─────────────────────────────────────────────────── */}
+      <ModalBody className="overflow-y-auto max-h-[68dvh] px-6 py-6 flex flex-col gap-8">
+        {/* Deployment channels */}
+        <div className="flex flex-col gap-4">
+          <SectionDivider label="Deployment Channels" />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-gray-200 dark:bg-gray-800">
+            {deploymentOptions.map(option => (
+              <button
+                key={option.title}
+                type="button"
+                onClick={option.onClick}
+                className="
+                  bg-white dark:bg-gray-900
+                  p-4 flex flex-col text-left
+                  group cursor-pointer
+                  hover:bg-gray-50 dark:hover:bg-gray-800/60
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary
+                  transition-colors duration-100
+                "
+              >
+                {/* Icon */}
+                <div className="w-8 h-8 flex items-center justify-center bg-gray-100 dark:bg-gray-800 group-hover:bg-primary/10 mb-3 shrink-0 transition-colors duration-100">
+                  <option.icon
+                    className="w-4 h-4 text-gray-600 dark:text-gray-400 group-hover:text-primary transition-colors duration-100"
+                    strokeWidth={1.5}
+                  />
+                </div>
 
-                  {/* Text */}
-                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
+                {/* Text */}
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
+                  {option.title}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 leading-[18px] flex-1 mb-4">
+                  {option.description}
+                </p>
+
+                {/* Action link */}
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-primary group-hover:gap-1.5 transition-all duration-100">
+                  {option.action}
+                  <ChevronRight className="w-3 h-3 shrink-0" />
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Automation & Integrations */}
+        <div className="flex flex-col gap-4">
+          <SectionDivider label="Automation & Integrations" />
+          <div className="flex flex-col gap-px bg-gray-200 dark:bg-gray-800">
+            {automationOptions.map(option => (
+              <button
+                key={option.title}
+                type="button"
+                onClick={option.onClick}
+                className="
+                  bg-white dark:bg-gray-900
+                  px-4 py-4 flex items-center gap-4 text-left
+                  group cursor-pointer
+                  hover:bg-gray-50 dark:hover:bg-gray-800/60
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary
+                  transition-colors duration-100
+                "
+              >
+                {/* Icon */}
+                <div className="w-8 h-8 flex items-center justify-center bg-gray-100 dark:bg-gray-800 group-hover:bg-primary/10 shrink-0 transition-colors duration-100">
+                  <option.icon
+                    className="w-4 h-4 text-gray-600 dark:text-gray-400 group-hover:text-primary transition-colors duration-100"
+                    strokeWidth={1.5}
+                  />
+                </div>
+
+                {/* Text */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                     {option.title}
                   </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 leading-[18px] flex-1 mb-4">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 leading-[18px] mt-0.5">
                     {option.description}
                   </p>
+                </div>
 
-                  {/* Action link */}
-                  <span className="inline-flex items-center gap-1 text-xs font-medium text-primary group-hover:gap-1.5 transition-all duration-100">
-                    {option.action}
-                    <ChevronRight className="w-3 h-3 shrink-0" />
-                  </span>
-                </button>
-              ))}
-            </div>
+                {/* Action link */}
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-primary shrink-0 group-hover:gap-1.5 transition-all duration-100">
+                  {option.action}
+                  <ChevronRight className="w-3 h-3" />
+                </span>
+              </button>
+            ))}
           </div>
+        </div>
+      </ModalBody>
 
-          {/* Automation & Integrations */}
-          <div className="flex flex-col gap-4">
-            <SectionDivider label="Automation & Integrations" />
-            <div className="flex flex-col gap-px bg-gray-200 dark:bg-gray-800">
-              {automationOptions.map(option => (
-                <button
-                  key={option.title}
-                  type="button"
-                  onClick={option.onClick}
-                  className="
-                    bg-white dark:bg-gray-900
-                    px-4 py-4 flex items-center gap-4 text-left
-                    group cursor-pointer
-                    hover:bg-gray-50 dark:hover:bg-gray-800/60
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary
-                    transition-colors duration-100
-                  "
-                >
-                  {/* Icon */}
-                  <div className="w-8 h-8 flex items-center justify-center bg-gray-100 dark:bg-gray-800 group-hover:bg-primary/10 shrink-0 transition-colors duration-100">
-                    <option.icon
-                      className="w-4 h-4 text-gray-600 dark:text-gray-400 group-hover:text-primary transition-colors duration-100"
-                      strokeWidth={1.5}
-                    />
-                  </div>
-
-                  {/* Text */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                      {option.title}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 leading-[18px] mt-0.5">
-                      {option.description}
-                    </p>
-                  </div>
-
-                  {/* Action link */}
-                  <span className="inline-flex items-center gap-1 text-xs font-medium text-primary shrink-0 group-hover:gap-1.5 transition-all duration-100">
-                    {option.action}
-                    <ChevronRight className="w-3 h-3" />
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </ModalBody>
-
-        {/* ── Footer ───────────────────────────────────────────────── */}
-        <ModalFooter errorMessage="">
-          <ICancelButton onClick={() => setModalOpen(false)}>
-            Do this later
-          </ICancelButton>
-          <IBlueBGButton
-            type="button"
-            onClick={() => nav.goToAssistantPreview(assistantId)}
-          >
-            <span>Preview assistant</span>
-            <ExternalLink className="w-4 h-4 ml-1" strokeWidth={1.5} />
-          </IBlueBGButton>
-        </ModalFooter>
-      </ModalFitHeightBlock>
-    </GenericModal>
+      {/* ── Footer ───────────────────────────────────────────────── */}
+      <ModalFooter>
+        <SecondaryButton size="lg" onClick={() => setModalOpen(false)}>
+          Do this later
+        </SecondaryButton>
+        <PrimaryButton
+          size="lg"
+          type="button"
+          onClick={() => nav.goToAssistantPreview(assistantId)}
+        >
+          <span>Preview assistant</span>
+          <ExternalLink className="w-4 h-4 ml-1" strokeWidth={1.5} />
+        </PrimaryButton>
+      </ModalFooter>
+    </Modal>
   );
 };

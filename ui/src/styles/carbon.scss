@@ -1,0 +1,465 @@
+@use '@carbon/react/scss/components/button';
+@use '@carbon/react/scss/components/tooltip';
+@use '@carbon/react/scss/components/toggletip';
+@use '@carbon/react/scss/components/overflow-menu';
+@use '@carbon/react/scss/components/modal';
+@use '@carbon/react/scss/components/form';
+@use '@carbon/react/scss/components/stack';
+@use '@carbon/react/scss/components/checkbox';
+@use '@carbon/react/scss/components/text-input';
+@use '@carbon/react/scss/components/text-area';
+@use '@carbon/react/scss/components/list-box';
+@use '@carbon/react/scss/components/dropdown';
+@use '@carbon/react/scss/components/multiselect';
+@use '@carbon/react/scss/components/search';
+@use '@carbon/react/scss/components/select';
+@use '@carbon/react/scss/components/pagination';
+@use '@carbon/react/scss/components/radio-button';
+@use '@carbon/react/scss/components/skeleton-styles';
+@use '@carbon/react/scss/components/data-table';
+@use '@carbon/react/scss/components/data-table/action';
+@use '@carbon/react/scss/components/icon-indicator';
+@use '@carbon/styles/scss/components/shape-indicator';
+@use '@carbon/react/scss/components/breadcrumb';
+@use '@carbon/react/scss/components/notification';
+@use '@carbon/react/scss/components/link';
+@use '@carbon/react/scss/components/tile';
+@use '@carbon/react/scss/components/tag';
+@use '@carbon/react/scss/components/loading';
+@use '@carbon/react/scss/components/code-snippet';
+@use '@carbon/react/scss/components/content-switcher';
+@use '@carbon/react/scss/components/copy-button';
+@use '@carbon/react/scss/components/menu';
+@use '@carbon/styles/scss/components/combo-button';
+@use '@carbon/styles/scss/components/menu-button';
+@use '@carbon/react/scss/components/ui-shell';
+
+// ─── Light theme (default) ───────────────────────────────────────────────────
+:root {
+  // Background / layer
+  --cds-background: #ffffff;
+  --cds-layer: #ffffff;
+  --cds-layer-hover: #e8e8e8;
+  --cds-layer-active: #c6c6c6;
+  --cds-layer-01: #f4f4f4;
+  --cds-layer-02: #ffffff;
+  --cds-layer-accent: #e0e0e0;
+  --cds-layer-accent-hover: #d1d1d1;
+  --cds-layer-accent-active: #a8a8a8;
+  --cds-layer-selected: #e0e0e0;
+  --cds-layer-selected-hover: #cacaca;
+  --cds-field: #f4f4f4;
+  --cds-field-hover: #e8e8e8;
+  --cds-field-01: #f4f4f4;
+  --cds-field-02: #ffffff;
+  --cds-background-hover: rgba(0, 0, 0, 0.05);
+  --cds-background-active: rgba(0, 0, 0, 0.08);
+  --cds-background-selected: rgba(0, 0, 0, 0.06);
+  --cds-background-selected-hover: rgba(0, 0, 0, 0.1);
+  --cds-background-inverse: #393939;
+  --cds-background-inverse-hover: #474747;
+
+  // Primary / interactive
+  --cds-interactive: var(--color-primary);
+  --cds-button-primary: var(--color-primary);
+  --cds-button-primary-hover: color-mix(in oklab, var(--color-primary) 85%, black);
+  --cds-button-primary-active: color-mix(in oklab, var(--color-primary) 70%, black);
+
+  // Secondary
+  --cds-button-secondary: #393939;
+  --cds-button-secondary-hover: #474747;
+  --cds-button-secondary-active: #6f6f6f;
+
+  // Tertiary
+  --cds-button-tertiary: var(--color-primary);
+  --cds-button-tertiary-hover: var(--color-primary);
+  --cds-button-tertiary-active: color-mix(in oklab, var(--color-primary) 70%, black);
+
+  // Danger
+  --cds-button-danger-primary: #da1e28;
+  --cds-button-danger-secondary: #da1e28;
+  --cds-button-danger-hover: #b81921;
+  --cds-button-danger-active: #750e13;
+
+  // Focus
+  --cds-focus: var(--color-primary);
+  --cds-focus-inset: #ffffff;
+
+  // Border
+  --cds-border-interactive: var(--color-primary);
+  --cds-border-subtle: #e0e0e0;
+  --cds-border-subtle-00: #e0e0e0;
+  --cds-border-subtle-01: #c6c6c6;
+  --cds-border-subtle-02: #e0e0e0;
+  --cds-border-strong: #8d8d8d;
+  --cds-border-strong-01: #8d8d8d;
+
+  // Link
+  --cds-link-primary: var(--color-primary);
+  --cds-link-primary-hover: color-mix(in oklab, var(--color-primary) 80%, black);
+
+  // Text
+  --cds-text-primary: #161616;
+  --cds-text-secondary: #525252;
+  --cds-text-placeholder: #a8a8a8;
+  --cds-text-on-color: #ffffff;
+  --cds-text-on-color-disabled: #8d8d8d;
+  --cds-text-inverse: #ffffff;
+  --cds-text-disabled: #c6c6c6;
+
+  // Icon
+  --cds-icon-primary: #161616;
+  --cds-icon-secondary: #525252;
+  --cds-icon-on-color: #ffffff;
+  --cds-icon-on-color-disabled: #8d8d8d;
+  --cds-icon-disabled: #c6c6c6;
+  --cds-icon-inverse: #ffffff;
+
+  // Support
+  --cds-support-error: #da1e28;
+  --cds-support-success: #198038;
+  --cds-support-warning: #f1c21b;
+  --cds-support-info: #0043ce;
+
+  // Notification backgrounds (low contrast)
+  --cds-notification-background-error: #fff1f1;
+  --cds-notification-background-success: #defbe6;
+  --cds-notification-background-info: #edf5ff;
+  --cds-notification-background-warning: #fdf6dd;
+  --cds-notification-action-hover: #ffffff;
+  --cds-notification-action-tertiary-inverse: #0f62fe;
+  --cds-notification-action-tertiary-inverse-hover: #0353e9;
+  --cds-notification-action-tertiary-inverse-text: #ffffff;
+
+  // Overlay / popover
+  --cds-overlay: rgba(22, 22, 22, 0.5);
+  --cds-shadow: rgba(0, 0, 0, 0.3);
+}
+
+// ─── Dark theme ──────────────────────────────────────────────────────────────
+:is(.dark *),
+:root:is(.dark) {
+  // Background / layer
+  --cds-background: transparent;
+  --cds-layer: #161616;
+  --cds-layer-hover: #353535;
+  --cds-layer-active: #525252;
+  --cds-layer-01: transparent;
+  --cds-layer-02: #353535;
+  --cds-layer-accent: #393939;
+  --cds-layer-accent-hover: #474747;
+  --cds-layer-accent-active: #6f6f6f;
+  --cds-layer-selected: #393939;
+  --cds-layer-selected-hover: #474747;
+  --cds-field: #393939;
+  --cds-field-hover: #474747;
+  --cds-field-01: #262626;
+  --cds-field-02: #393939;
+  --cds-background-hover: rgba(255, 255, 255, 0.08);
+  --cds-background-active: rgba(255, 255, 255, 0.12);
+  --cds-background-selected: rgba(255, 255, 255, 0.1);
+  --cds-background-selected-hover: rgba(255, 255, 255, 0.16);
+  --cds-background-inverse: #f4f4f4;
+  --cds-background-inverse-hover: #e8e8e8;
+
+  // Primary / interactive
+  --cds-interactive: #1062fe;
+  --cds-button-primary: #1062fe;
+  --cds-button-primary-hover: color-mix(in oklab, #1062fe 80%, white);
+  --cds-button-primary-active: color-mix(in oklab, #1062fe 65%, white);
+
+  // Secondary
+  --cds-button-secondary: #6f6f6f;
+  --cds-button-secondary-hover: #606060;
+  --cds-button-secondary-active: #393939;
+
+  // Tertiary
+  --cds-button-tertiary: #1062fe;
+  --cds-button-tertiary-hover: #1062fe;
+  --cds-button-tertiary-active: color-mix(in oklab, #1062fe 65%, white);
+
+  // Danger
+  --cds-button-danger-primary: #da1e28;
+  --cds-button-danger-secondary: #ff8389;
+  --cds-button-danger-hover: #b81921;
+  --cds-button-danger-active: #750e13;
+
+  // Focus
+  --cds-focus: #1062fe;
+  --cds-focus-inset: #161616;
+
+  // Border
+  --cds-border-interactive: #1062fe;
+  --cds-border-subtle: #393939;
+  --cds-border-subtle-00: #393939;
+  --cds-border-subtle-01: #525252;
+  --cds-border-subtle-02: #393939;
+  --cds-border-strong: #6f6f6f;
+  --cds-border-strong-01: #6f6f6f;
+
+  // Link
+  --cds-link-primary: #1062fe;
+  --cds-link-primary-hover: color-mix(in oklab, #1062fe 80%, white);
+
+  // Text
+  --cds-text-primary: #f4f4f4;
+  --cds-text-secondary: #c6c6c6;
+  --cds-text-placeholder: #6f6f6f;
+  --cds-text-on-color: #ffffff;
+  --cds-text-on-color-disabled: #8d8d8d;
+  --cds-text-inverse: #161616;
+  --cds-text-disabled: #525252;
+
+  // Icon
+  --cds-icon-primary: #f4f4f4;
+  --cds-icon-secondary: #c6c6c6;
+  --cds-icon-on-color: #ffffff;
+  --cds-icon-on-color-disabled: #8d8d8d;
+  --cds-icon-disabled: #525252;
+  --cds-icon-inverse: #161616;
+
+  // Support
+  --cds-support-error: #ff8389;
+  --cds-support-success: #42be65;
+  --cds-support-warning: #f1c21b;
+  --cds-support-info: #4589ff;
+
+  // Notification backgrounds (low contrast)
+  --cds-notification-background-error: #393939;
+  --cds-notification-background-success: #393939;
+  --cds-notification-background-info: #393939;
+  --cds-notification-background-warning: #393939;
+  --cds-notification-action-hover: #474747;
+  --cds-notification-action-tertiary-inverse: #ffffff;
+  --cds-notification-action-tertiary-inverse-hover: #e8e8e8;
+  --cds-notification-action-tertiary-inverse-text: #161616;
+
+  // Overlay / popover
+  --cds-overlay: rgba(0, 0, 0, 0.65);
+  --cds-shadow: rgba(0, 0, 0, 0.8);
+}
+
+// ─── System preference dark (when no .dark class) ────────────────────────────
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --cds-background: transparent;
+    --cds-layer: #161616;
+    --cds-layer-hover: #353535;
+    --cds-layer-active: #525252;
+    --cds-layer-01: transparent;
+    --cds-layer-02: #353535;
+    --cds-layer-accent: #393939;
+    --cds-layer-accent-hover: #474747;
+    --cds-layer-accent-active: #6f6f6f;
+    --cds-layer-selected: #393939;
+    --cds-layer-selected-hover: #474747;
+    --cds-field: #393939;
+    --cds-field-hover: #474747;
+    --cds-field-01: #262626;
+    --cds-field-02: #393939;
+    --cds-background-hover: rgba(255, 255, 255, 0.08);
+    --cds-background-active: rgba(255, 255, 255, 0.12);
+    --cds-background-selected: rgba(255, 255, 255, 0.1);
+    --cds-background-selected-hover: rgba(255, 255, 255, 0.16);
+    --cds-background-inverse: #f4f4f4;
+    --cds-background-inverse-hover: #e8e8e8;
+    --cds-interactive: #1062fe;
+    --cds-button-primary: #1062fe;
+    --cds-button-primary-hover: color-mix(in oklab, #1062fe 80%, white);
+    --cds-button-primary-active: color-mix(in oklab, #1062fe 65%, white);
+    --cds-button-secondary: #6f6f6f;
+    --cds-button-secondary-hover: #606060;
+    --cds-button-secondary-active: #393939;
+    --cds-button-tertiary: #1062fe;
+    --cds-button-tertiary-hover: #1062fe;
+    --cds-button-tertiary-active: color-mix(in oklab, #1062fe 65%, white);
+    --cds-button-danger-primary: #da1e28;
+    --cds-button-danger-secondary: #ff8389;
+    --cds-button-danger-hover: #b81921;
+    --cds-button-danger-active: #750e13;
+    --cds-focus: #1062fe;
+    --cds-focus-inset: #161616;
+    --cds-border-interactive: #1062fe;
+    --cds-border-subtle: #393939;
+    --cds-border-subtle-00: #393939;
+    --cds-border-subtle-01: #525252;
+    --cds-border-subtle-02: #393939;
+    --cds-border-strong: #6f6f6f;
+    --cds-border-strong-01: #6f6f6f;
+    --cds-link-primary: #1062fe;
+    --cds-link-primary-hover: color-mix(in oklab, #1062fe 80%, white);
+    --cds-text-primary: #f4f4f4;
+    --cds-text-secondary: #c6c6c6;
+    --cds-text-placeholder: #6f6f6f;
+    --cds-text-on-color: #ffffff;
+    --cds-text-on-color-disabled: #8d8d8d;
+    --cds-text-inverse: #161616;
+    --cds-text-disabled: #525252;
+    --cds-icon-primary: #f4f4f4;
+    --cds-icon-secondary: #c6c6c6;
+    --cds-icon-on-color: #ffffff;
+    --cds-icon-on-color-disabled: #8d8d8d;
+    --cds-icon-disabled: #525252;
+    --cds-icon-inverse: #161616;
+    --cds-support-error: #ff8389;
+    --cds-support-success: #42be65;
+    --cds-support-warning: #f1c21b;
+    --cds-support-info: #4589ff;
+    --cds-overlay: rgba(0, 0, 0, 0.65);
+    --cds-shadow: rgba(0, 0, 0, 0.8);
+  }
+}
+
+// ─── Toolbar styling ─────────────────────────────────────────────────────────
+.cds--table-toolbar {
+  background-color: transparent;
+  border: none;
+  border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+// ─── Table header overrides ──────────────────────────────────────────────────
+.cds--table-header-label {
+  text-transform: uppercase;
+  font-weight: 500;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}
+
+// ─── Switcher labeled divider (IBM pattern) ──────────────────────────────────
+.cds--switcher__item--divider:has(> span) {
+  display: flex;
+  align-items: center;
+  height: auto;
+  padding: 1rem 1rem 0.5rem;
+  margin: 0;
+  background: none;
+  border-top: none;
+  border-bottom: 1px solid var(--cds-border-subtle);
+  block-size: auto;
+  inline-size: 100%;
+
+  span {
+    font-size: 0.625rem;
+    font-weight: 500;
+    color: var(--cds-text-secondary);
+    letter-spacing: 0.1em;
+    text-transform: capitalize;
+    text-align: left;
+    width: 100%;
+  }
+}
+
+// ─── Project selector dropdown in header ─────────────────────────────────────
+.project-selector-dropdown {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  min-width: 180px;
+  border-inline-start: none;
+
+  position: relative;
+
+  .cds--dropdown,
+  .cds--list-box__wrapper {
+    position: static;
+  }
+
+  .cds--list-box {
+    border: none;
+    height: 3rem;
+    max-height: 3rem;
+    background-color: transparent;
+  }
+
+  .cds--list-box__menu {
+    position: absolute;
+    top: 3rem;
+    left: 0;
+    z-index: 9000;
+  }
+
+  .cds--list-box__field {
+    height: 3rem;
+    padding-inline-start: 1rem;
+    padding-inline-end: 2.5rem;
+  }
+
+  .cds--list-box__label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cds--list-box__menu-icon {
+    right: 0.75rem;
+  }
+
+  .cds--list-box__menu-item {
+    height: 2.5rem;
+  }
+
+  .cds--list-box__menu-item__option {
+    padding-block: 0.625rem;
+  }
+
+  .cds--list-box:hover {
+    background-color: var(--cds-background-hover);
+  }
+
+  .cds--list-box--expanded .cds--list-box__field {
+    border-bottom: 2px solid var(--cds-border-interactive);
+  }
+}
+
+// ─── Notice link style — action button as inline link ────────────────────────
+.notice-link-style .cds--actionable-notification__action-button {
+  background: none !important;
+  border: none !important;
+  padding: 0 !important;
+  min-height: auto !important;
+  color: var(--cds-link-primary) !important;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+
+  &:hover {
+    background: none !important;
+    text-decoration: none;
+  }
+}
+
+// ─── Tag tokens (light/dark) ─────────────────────────────────────────────────
+// ─── Remove dotted underline from DefinitionTooltip wrapping tags ────────────
+// ─── Remove dotted underline from DefinitionTooltip wrapping tags ────────────
+.cds--definition-term {
+  border-bottom: none !important;
+}
+
+// ─── SideNav submenu items font weight ───────────────────────────────────────
+.cds--side-nav__menu-item .cds--side-nav__link-text {
+  font-weight: 500;
+}
+
+
+:root {
+  --cds-tag-background-cool-gray: #dde1e6;
+  --cds-tag-color-cool-gray: #121619;
+  --cds-tag-hover-cool-gray: #cdd3da;
+  --cds-tag-background-gray: #e0e0e0;
+  --cds-tag-color-gray: #161616;
+  --cds-tag-hover-gray: #cacaca;
+}
+
+:is(.dark *),
+:root:is(.dark) {
+  --cds-tag-background-cool-gray: #343a3f;
+  --cds-tag-color-cool-gray: #dde1e6;
+  --cds-tag-hover-cool-gray: #4d5358;
+  --cds-tag-background-gray: #393939;
+  --cds-tag-color-gray: #e0e0e0;
+  --cds-tag-hover-gray: #474747;
+}
+

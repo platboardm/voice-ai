@@ -1,38 +1,24 @@
 import React from 'react';
-import { cn } from '@/utils';
-import { Dropdown } from '@/app/components/dropdown';
+import { Dropdown } from '@/app/components/carbon/dropdown';
 
 const Roles = ['super admin', 'admin', 'writer', 'reader'];
 
 export function ProjectRoleDropdown(props: {
   projectRole: string;
-  setProjectRoleId: (string) => void;
+  setProjectRoleId: (role: string) => void;
 }) {
   return (
     <Dropdown
-      allValue={Roles}
-      currentValue={props.projectRole}
-      setValue={props.setProjectRoleId}
-      className="bg-light-background dark:bg-gray-950"
-      placeholder="Select a project role"
-      label={prj => {
-        return (
-          <span className={cn('block truncate capitalize font-medium text-sm')}>
-            {prj}
-          </span>
-        );
-      }}
-      option={(prj, selected) => {
-        return (
-          <span
-            className={cn(
-              'block truncate text-sm capitalize',
-              selected ? 'opacity-100 font-medium' : 'opacity-80',
-            )}
-          >
-            {prj}
-          </span>
-        );
+      id="project-role-dropdown"
+      titleText="Project Role"
+      label="Select a project role"
+      items={Roles}
+      selectedItem={props.projectRole || null}
+      itemToString={(item: string | null) =>
+        item ? item.charAt(0).toUpperCase() + item.slice(1) : ''
+      }
+      onChange={({ selectedItem }) => {
+        if (selectedItem) props.setProjectRoleId(selectedItem);
       }}
     />
   );

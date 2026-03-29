@@ -8,15 +8,16 @@ import { FC, useCallback, useContext, useEffect, useRef } from 'react';
 import { AssistantChatContext } from '@/hooks/use-assistant-chat';
 import { useBoolean } from 'ahooks';
 import { SectionLoader } from '@/app/components/loader/section-loader';
-import { ArrowDownToLine, RotateCw } from 'lucide-react';
-import { IButton } from '@/app/components/form/button';
+import { Renew, Download } from '@carbon/icons-react';
+import { GhostButton } from '@/app/components/carbon/button';
+import { Tag, DefinitionTooltip } from '@carbon/react';
 import { ActionableEmptyMessage } from '@/app/components/container/message/actionable-empty-message';
 import {
   getMetadataValueOrDefault,
   getStatusMetric,
   getTotalTokenMetric,
 } from '@/utils/metadata';
-import { StatusIndicator } from '@/app/components/indicators/status';
+import { CarbonStatusIndicator } from '@/app/components/carbon/status-indicator';
 import { toHumanReadableDateTime } from '@/utils/date';
 import { AudioPlayer } from '@/app/components/audio-player';
 import {
@@ -120,35 +121,31 @@ export const ConversationMessages: FC<{
         </div>
       ))}
 
-      <div className="flex items-stretch h-10 border-b border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-900 sticky top-0 z-[2] shrink-0">
-        <div className="flex-1 flex items-center px-4">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-700 dark:text-gray-200">
-            {conversations.length}{' '}
-            {conversations.length === 1 ? 'message' : 'messages'}
-          </span>
-        </div>
-        <div className="flex items-stretch border-l border-gray-300 dark:border-gray-700">
-          <div className="flex items-center px-3 border-r border-gray-300 dark:border-gray-700">
-            <StatusIndicator
-              state={getStatusMetric(conversation.getMetricsList())}
-            />
-          </div>
-          <div className="w-px self-stretch bg-gray-300 dark:bg-gray-700 shrink-0" />
-          <IButton
-            className="h-full px-3 text-[11px] font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-800"
+      <div className="flex items-center justify-between h-10 px-4 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-[2] shrink-0 bg-white dark:bg-gray-900">
+        <span className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          {conversations.length}{' '}
+          {conversations.length === 1 ? 'message' : 'messages'}
+        </span>
+        <div className="flex items-center gap-2">
+          <CarbonStatusIndicator
+            state={getStatusMetric(conversation.getMetricsList())}
+          />
+          <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
+          <GhostButton
+            size="sm"
+            hasIconOnly
+            renderIcon={Renew}
+            iconDescription="Refresh"
             onClick={get}
-          >
-            <RotateCw strokeWidth={1.5} className="h-4 w-4" />
-            Refresh
-          </IButton>
-          <div className="w-px self-stretch bg-gray-300 dark:bg-gray-700 shrink-0" />
-          <IButton
-            className="h-full px-3 text-[11px] font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-800"
+          />
+          <div className="w-px h-4 bg-gray-200 dark:bg-gray-700" />
+          <GhostButton
+            size="sm"
+            hasIconOnly
+            renderIcon={Download}
+            iconDescription="Export CSV"
             onClick={downloadAllMessages}
-          >
-            <ArrowDownToLine strokeWidth={1.5} className="h-4 w-4" />
-            Export
-          </IButton>
+          />
         </div>
       </div>
 
@@ -165,9 +162,6 @@ export const ConversationMessages: FC<{
       <ul className="divide-y divide-gray-200 dark:divide-gray-800">
         {conversations.map((x, idx) => {
           const visual = getRoleVisual(x.getRole());
-          const telemetryTone =
-            'border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300';
-          const telemetryKeyTone = 'text-gray-500 dark:text-gray-400';
 
           return (
             <li key={idx} className="bg-white dark:bg-gray-900">
@@ -185,29 +179,29 @@ export const ConversationMessages: FC<{
                   <div className="px-4 pb-3 text-sm text-gray-900 dark:text-gray-100 leading-relaxed [&_:is([data-link],a:link,a:visited,a:hover,a:active)]:text-current [&_:is([data-link],a:link,a:visited,a:hover,a:active):hover]:underline [&_:is(code,div[data-lang])]:font-mono [&_:is(code,div[data-lang])]:bg-black/10 dark:[&_:is(code,div[data-lang])]:bg-white/10 [&_:is(code,div[data-lang])]:rounded-[2px] [&_is:(code)]:p-0.5 [&_div[data-lang]]:p-2 [&_div[data-lang]]:overflow-auto [&_:is(p,ul,ol,dl,table,blockquote,div[data-lang],h4,h5,h6,hr):not(:first-child)]:mt-2 [&_:is(p,ul,ol,dl,table,blockquote,div[data-lang],h3,h4,h5,h6,hr):not(:last-child)]:mb-2 [&_:is(ul,ol)]:pl-5 [&_ul]:list-disc [&_ol]:list-decimal [&_:is(strong,h1,h2,h3,h4,h5,h6)]:font-semibold whitespace-pre-wrap break-words">
                     {x.getBody() || '-'}
                   </div>
-                  <div
-                    className={`px-4 py-2 border-t border-gray-200 dark:border-gray-800 text-[11px] font-mono flex flex-wrap items-center gap-x-4 gap-y-1 ${telemetryTone}`}
-                  >
-                    <span>
-                      <span className={telemetryKeyTone}>tokens=</span>
-                      {getTotalTokenMetric(x.getMetricsList())}
-                    </span>
-                    <span>
-                      <span className={telemetryKeyTone}>latency=</span>
-                      {formatLatency(x.getMetricsList())}
-                    </span>
-                    <span>
-                      <span className={telemetryKeyTone}>mode=</span>
-                      {getMetadataValueOrDefault(
-                        x.getMetadataList(),
-                        'mode',
-                        'text',
-                      )}
-                    </span>
-                    <span>
-                      <span className={telemetryKeyTone}>status=</span>
-                      {getStatusMetric(x.getMetricsList())}
-                    </span>
+                  <div className="px-4 py-2 flex flex-wrap items-center gap-1.5">
+                    {x.getMetricsList()?.filter(m => m?.getKey).map((m, mi) => (
+                      <DefinitionTooltip
+                        key={mi}
+                        definition={`Metric: ${m.getKey()}\nValue: ${m.getValue()}`}
+                        openOnHover
+                      >
+                        <Tag size="sm" type="blue" className="!cursor-help">
+                          {m.getKey()}: {m.getValue()}
+                        </Tag>
+                      </DefinitionTooltip>
+                    ))}
+                    {x.getMetadataList()?.filter(m => m?.getKey).map((m, mi) => (
+                      <DefinitionTooltip
+                        key={`md-${mi}`}
+                        definition={`Metadata: ${m.getKey()}\nValue: ${m.getValue()}`}
+                        openOnHover
+                      >
+                        <Tag size="sm" type="cool-gray" className="!cursor-help">
+                          {m.getKey()}: {m.getValue()}
+                        </Tag>
+                      </DefinitionTooltip>
+                    ))}
                   </div>
                 </div>
               </div>

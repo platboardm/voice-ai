@@ -25,16 +25,13 @@ import (
 
 type assemblyaiSTT struct {
 	*assemblyaiOption
-
-	ctx       context.Context
-	ctxCancel context.CancelFunc
-
+	ctx        context.Context
+	ctxCancel  context.CancelFunc
 	mu         sync.Mutex
 	connection *websocket.Conn
 	logger     commons.Logger
 	onPacket   func(pkt ...internal_type.Packet) error
-
-	startedAt time.Time
+	startedAt  time.Time
 }
 
 func NewAssemblyaiSpeechToText(ctx context.Context, logger commons.Logger, credential *protos.VaultCredential,

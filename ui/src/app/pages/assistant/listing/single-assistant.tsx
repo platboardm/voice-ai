@@ -9,7 +9,7 @@ import TooltipPlus from '@/app/components/base/tooltip-plus';
 import SourceIndicator from '@/app/components/indicators/source';
 import { useGlobalNavigation } from '@/hooks/use-global-navigator';
 import { AssistantConversation } from '@rapidaai/react';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight } from '@carbon/icons-react';
 import { ActionCard } from '@/app/components/base/cards';
 
 const SingleAssistant: FC<{ assistant: Assistant }> = ({ assistant }) => {
@@ -94,15 +94,15 @@ const SingleAssistant: FC<{ assistant: Assistant }> = ({ assistant }) => {
               }}
             >
               Set up deployment
-              <ArrowRight className="w-3 h-3" strokeWidth={1.5} />
+              <ArrowRight size={12} />
             </button>
           )}
         </div>
 
         {/* Carbon clickable-tile arrow — communicates the card is navigable */}
         <ArrowRight
-          className="shrink-0 w-4 h-4 text-gray-300 dark:text-gray-600 group-hover:text-primary transition-colors mt-0.5"
-          strokeWidth={1.5}
+          size={16}
+          className="shrink-0 text-gray-300 dark:text-gray-600 group-hover:text-primary transition-colors mt-0.5"
         />
       </div>
     </ActionCard>

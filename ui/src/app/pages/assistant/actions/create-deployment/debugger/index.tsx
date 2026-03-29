@@ -37,12 +37,13 @@ import { useConfirmDialog } from '@/app/pages/assistant/actions/hooks/use-confir
 import { DebuggerDeploymentSuccessDialog } from '@/app/components/base/modal/debugger-deployment-success-modal';
 import { TabForm } from '@/app/components/form/tab-form';
 import {
-  IBlueBGArrowButton,
-  ICancelButton,
-} from '@/app/components/form/button';
+  PrimaryButton,
+  SecondaryButton,
+} from '@/app/components/carbon/button';
 import { InputCheckbox } from '@/app/components/form/checkbox';
 import { InputHelper } from '@/app/components/input-helper';
 import { BaseCard } from '@/app/components/base/cards';
+import { ButtonSet } from '@carbon/react';
 
 const STEPS = [
   {
@@ -380,21 +381,23 @@ const ConfigureAssistantDebuggerDeployment: FC<{ assistantId: string }> = ({
                 />
               ),
               actions: [
-                <ICancelButton
-                  className="w-full h-full"
-                  onClick={() =>
-                    showDialog(() => goToDeploymentAssistant(assistantId))
-                  }
-                >
-                  Cancel
-                </ICancelButton>,
-                <IBlueBGArrowButton
-                  type="button"
-                  className="w-full h-full"
-                  onClick={handleNext}
-                >
-                  Next
-                </IBlueBGArrowButton>,
+                <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                  <SecondaryButton size="lg"
+                    className="w-full h-full"
+                    onClick={() =>
+                      showDialog(() => goToDeploymentAssistant(assistantId))
+                    }
+                  >
+                    Cancel
+                  </SecondaryButton>
+                  <PrimaryButton size="lg"
+                    type="button"
+                    className="w-full h-full"
+                    onClick={handleNext}
+                  >
+                    Next
+                  </PrimaryButton>
+                </ButtonSet>,
               ],
             },
             {
@@ -428,21 +431,23 @@ const ConfigureAssistantDebuggerDeployment: FC<{ assistantId: string }> = ({
                 </div>
               ),
               actions: [
-                <ICancelButton
-                  className="w-full h-full"
-                  onClick={() =>
-                    showDialog(() => goToDeploymentAssistant(assistantId))
-                  }
-                >
-                  Cancel
-                </ICancelButton>,
-                <IBlueBGArrowButton
-                  type="button"
-                  className="w-full h-full"
-                  onClick={handleNext}
-                >
-                  Next
-                </IBlueBGArrowButton>,
+                <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                  <SecondaryButton size="lg"
+                    className="w-full h-full"
+                    onClick={() =>
+                      showDialog(() => goToDeploymentAssistant(assistantId))
+                    }
+                  >
+                    Cancel
+                  </SecondaryButton>
+                  <PrimaryButton size="lg"
+                    type="button"
+                    className="w-full h-full"
+                    onClick={handleNext}
+                  >
+                    Next
+                  </PrimaryButton>
+                </ButtonSet>,
               ],
             },
             {
@@ -476,23 +481,25 @@ const ConfigureAssistantDebuggerDeployment: FC<{ assistantId: string }> = ({
                 </div>
               ),
               actions: [
-                <ICancelButton
-                  className="w-full h-full"
-                  onClick={() =>
-                    showDialog(() => goToDeploymentAssistant(assistantId))
-                  }
-                >
-                  Cancel
-                </ICancelButton>,
-                <IBlueBGArrowButton
-                  type="button"
-                  className="w-full h-full"
-                  isLoading={isDeploying}
-                  disabled={isDeploying}
-                  onClick={handleDeployDebugger}
-                >
-                  Deploy Debugger
-                </IBlueBGArrowButton>,
+                <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                  <SecondaryButton size="lg"
+                    className="w-full h-full"
+                    onClick={() =>
+                      showDialog(() => goToDeploymentAssistant(assistantId))
+                    }
+                  >
+                    Cancel
+                  </SecondaryButton>
+                  <PrimaryButton size="lg"
+                    type="button"
+                    className="w-full h-full"
+                    isLoading={isDeploying}
+                    disabled={isDeploying}
+                    onClick={handleDeployDebugger}
+                  >
+                    Deploy Debugger
+                  </PrimaryButton>
+                </ButtonSet>,
               ],
             },
           ]}

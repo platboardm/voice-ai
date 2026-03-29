@@ -67,6 +67,8 @@
         }
     },
     "dependencies": {
+        "@carbon/react": "1.104.0",
+        "@carbon/styles": "1.103.0",
         "@craco/craco": "7.1.0",
         "@floating-ui/react": "0.26.9",
         "@formatjs/intl-localematcher": "0.5.4",
@@ -152,6 +154,7 @@
         "redux-injectors": "2.1.0",
         "redux-saga": "1.2.1",
         "sanitize.css": "13.0.0",
+        "sass": "1.98.0",
         "simplex-noise": "4.0.3",
         "sortablejs": "1.15.2",
         "styled-components": "6.1.14",

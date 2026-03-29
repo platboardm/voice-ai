@@ -706,7 +706,6 @@ func (talking *genericRequestor) handleInjectMessagePacket(ctx context.Context, 
 	// handles aggregation, TTS, state transitions (LLMGenerated), and idle
 	// timer naturally — all on the output dispatcher goroutine in order.
 	talking.OnPacket(ctx,
-		internal_type.SaveMessagePacket{ContextID: contextID, MessageRole: vl.Role(), Text: vl.Content()},
 		internal_type.LLMResponseDeltaPacket{ContextID: contextID, Text: vl.Text},
 		internal_type.LLMResponseDonePacket{ContextID: contextID, Text: vl.Text},
 	)
@@ -862,6 +861,9 @@ func (talking *genericRequestor) handleUserMessageMetric(ctx context.Context, vl
 			AssistantConversationId: talking.Conversation().Id,
 			Metrics:                 vl.Metrics,
 		})
+		if vl.ContextID == "" {
+			vl.ContextID = talking.GetID()
+		}
 		if err := talking.onAddMessageMetric(ctx, "user", vl.ContextID, vl.Metrics); err != nil {
 			talking.logger.Errorf("Error in onMessageMetric: %v", err)
 		}
@@ -880,6 +882,9 @@ func (talking *genericRequestor) handleUserMessageMetadata(ctx context.Context, 
 			AssistantConversationId: talking.Conversation().Id,
 			Metadata:                vl.Metadata,
 		})
+		if vl.ContextID == "" {
+			vl.ContextID = talking.GetID()
+		}
 		if err := talking.onAddMessageMetadata(ctx, "user", vl.ContextID, vl.Metadata); err != nil {
 			talking.logger.Errorf("Error in onAddMessageMetadata: %v", err)
 		}
@@ -892,6 +897,9 @@ func (talking *genericRequestor) handleAssistantMessageMetadata(ctx context.Cont
 			AssistantConversationId: talking.Conversation().Id,
 			Metadata:                vl.Metadata,
 		})
+		if vl.ContextID == "" {
+			vl.ContextID = talking.GetID()
+		}
 		if err := talking.onAddMessageMetadata(ctx, "assistant", vl.ContextID, vl.Metadata); err != nil {
 			talking.logger.Errorf("Error in onAddMessageMetadata: %v", err)
 		}
