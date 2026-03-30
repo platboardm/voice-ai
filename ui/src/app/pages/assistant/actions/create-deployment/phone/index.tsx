@@ -23,7 +23,6 @@ import { GetAssistantPhoneDeployment } from '@rapidaai/react';
 import { useCurrentCredential } from '@/hooks/use-credential';
 import toast from 'react-hot-toast/headless';
 import { Helmet } from '@/app/components/helmet';
-import { GetCartesiaDefaultOptions } from '@/app/components/providers/text-to-speech/cartesia';
 import {
   GetDefaultMicrophoneConfig,
   GetDefaultSpeechToTextIfInvalid,
@@ -128,7 +127,7 @@ const ConfigureAssistantCallDeployment: FC<{ assistantId: string }> = ({
     parameters: Metadata[];
   }>({
     provider: 'cartesia',
-    parameters: GetCartesiaDefaultOptions(GetDefaultSpeakerConfig()),
+    parameters: GetDefaultTextToSpeechIfInvalid('cartesia', GetDefaultSpeakerConfig()),
   });
 
   const hasFetched = useRef(false);
@@ -394,16 +393,18 @@ const ConfigureAssistantCallDeployment: FC<{ assistantId: string }> = ({
             description:
               'Select and configure your telephony provider for inbound and outbound calls.',
             body: (
-              <TelephonyProvider
-                provider={telephonyConfig.provider}
-                parameters={telephonyConfig.parameters}
-                onChangeProvider={provider =>
-                  setTelephonyConfig({ provider, parameters: [] })
-                }
-                onChangeParameter={parameters =>
-                  setTelephonyConfig(c => ({ ...c, parameters }))
-                }
-              />
+              <div className="max-w-4xl px-6 py-8">
+                <TelephonyProvider
+                  provider={telephonyConfig.provider}
+                  parameters={telephonyConfig.parameters}
+                  onChangeProvider={provider =>
+                    setTelephonyConfig({ provider, parameters: [] })
+                  }
+                  onChangeParameter={parameters =>
+                    setTelephonyConfig(c => ({ ...c, parameters }))
+                  }
+                />
+              </div>
             ),
             actions: [
               <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">

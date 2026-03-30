@@ -39,11 +39,10 @@ import { TabForm } from '@/app/components/form/tab-form';
 import {
   PrimaryButton,
   SecondaryButton,
+  GhostButton,
 } from '@/app/components/carbon/button';
-import { InputCheckbox } from '@/app/components/form/checkbox';
-import { InputHelper } from '@/app/components/input-helper';
-import { BaseCard } from '@/app/components/base/cards';
-import { ButtonSet } from '@carbon/react';
+import { ButtonSet, Checkbox } from '@carbon/react';
+import { CornerBorderOverlay } from '@/app/components/base/corner-border';
 
 const STEPS = [
   {
@@ -202,6 +201,12 @@ const ConfigureAssistantDebuggerDeployment: FC<{ assistantId: string }> = ({
       setActiveTab(code);
       setErrorMessage('');
     }
+  };
+
+  const handlePrevious = () => {
+    setErrorMessage('');
+    const idx = STEPS.findIndex(s => s.code === activeTab);
+    if (idx > 0) setActiveTab(STEPS[idx - 1].code);
   };
 
   const handleNext = () => {
@@ -383,18 +388,13 @@ const ConfigureAssistantDebuggerDeployment: FC<{ assistantId: string }> = ({
               actions: [
                 <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
                   <SecondaryButton size="lg"
-                    className="w-full h-full"
                     onClick={() =>
                       showDialog(() => goToDeploymentAssistant(assistantId))
                     }
                   >
                     Cancel
                   </SecondaryButton>
-                  <PrimaryButton size="lg"
-                    type="button"
-                    className="w-full h-full"
-                    onClick={handleNext}
-                  >
+                  <PrimaryButton size="lg" onClick={handleNext}>
                     Next
                   </PrimaryButton>
                 </ButtonSet>,
@@ -408,19 +408,24 @@ const ConfigureAssistantDebuggerDeployment: FC<{ assistantId: string }> = ({
               body: (
                 <div>
                   <div className="px-6 pt-6 pb-4">
-                    <BaseCard className="p-4 gap-2">
-                      <InputCheckbox
+                    <button
+                      type="button"
+                      onClick={() => setVoiceInputEnable(!voiceInputEnable)}
+                      className="relative group w-full text-left p-4 border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950/50 hover:bg-gray-50 dark:hover:bg-gray-900/60 transition-colors"
+                    >
+                      <CornerBorderOverlay className={voiceInputEnable ? 'opacity-100' : undefined} />
+                      <Checkbox
+                        id="voice-input-toggle"
+                        labelText="Enable voice input (Speech-to-Text)"
                         checked={voiceInputEnable}
-                        onChange={e => setVoiceInputEnable(e.target.checked)}
-                      >
-                        Enable voice input (Speech-to-Text)
-                      </InputCheckbox>
-                      <InputHelper>
+                        onChange={(_, { checked }) => setVoiceInputEnable(checked)}
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-6">
                         {voiceInputEnable
                           ? 'Voice input is currently enabled.'
-                          : 'Voice input is disabled. This deployment will not transcribe user speech, and existing STT settings will be removed when you save.'}
-                      </InputHelper>
-                    </BaseCard>
+                          : 'Voice input is disabled. This deployment will not transcribe user speech.'}
+                      </p>
+                    </button>
                   </div>
                   {voiceInputEnable && (
                     <ConfigureAudioInputProvider
@@ -432,19 +437,17 @@ const ConfigureAssistantDebuggerDeployment: FC<{ assistantId: string }> = ({
               ),
               actions: [
                 <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                  <GhostButton size="lg" onClick={handlePrevious}>
+                    Previous
+                  </GhostButton>
                   <SecondaryButton size="lg"
-                    className="w-full h-full"
                     onClick={() =>
                       showDialog(() => goToDeploymentAssistant(assistantId))
                     }
                   >
                     Cancel
                   </SecondaryButton>
-                  <PrimaryButton size="lg"
-                    type="button"
-                    className="w-full h-full"
-                    onClick={handleNext}
-                  >
+                  <PrimaryButton size="lg" onClick={handleNext}>
                     Next
                   </PrimaryButton>
                 </ButtonSet>,
@@ -458,19 +461,24 @@ const ConfigureAssistantDebuggerDeployment: FC<{ assistantId: string }> = ({
               body: (
                 <div>
                   <div className="px-6 pt-6 pb-4">
-                    <BaseCard className="p-4 gap-2">
-                      <InputCheckbox
+                    <button
+                      type="button"
+                      onClick={() => setVoiceOutputEnable(!voiceOutputEnable)}
+                      className="relative group w-full text-left p-4 border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950/50 hover:bg-gray-50 dark:hover:bg-gray-900/60 transition-colors"
+                    >
+                      <CornerBorderOverlay className={voiceOutputEnable ? 'opacity-100' : undefined} />
+                      <Checkbox
+                        id="voice-output-toggle"
+                        labelText="Enable voice output (Text-to-Speech)"
                         checked={voiceOutputEnable}
-                        onChange={e => setVoiceOutputEnable(e.target.checked)}
-                      >
-                        Enable voice output (Text-to-Speech)
-                      </InputCheckbox>
-                      <InputHelper>
+                        onChange={(_, { checked }) => setVoiceOutputEnable(checked)}
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-6">
                         {voiceOutputEnable
                           ? 'Voice output is currently enabled.'
                           : 'Voice output is disabled. Assistant responses will be text only.'}
-                      </InputHelper>
-                    </BaseCard>
+                      </p>
+                    </button>
                   </div>
                   {voiceOutputEnable && (
                     <ConfigureAudioOutputProvider
@@ -482,8 +490,10 @@ const ConfigureAssistantDebuggerDeployment: FC<{ assistantId: string }> = ({
               ),
               actions: [
                 <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                  <GhostButton size="lg" onClick={handlePrevious}>
+                    Previous
+                  </GhostButton>
                   <SecondaryButton size="lg"
-                    className="w-full h-full"
                     onClick={() =>
                       showDialog(() => goToDeploymentAssistant(assistantId))
                     }
@@ -491,8 +501,6 @@ const ConfigureAssistantDebuggerDeployment: FC<{ assistantId: string }> = ({
                     Cancel
                   </SecondaryButton>
                   <PrimaryButton size="lg"
-                    type="button"
-                    className="w-full h-full"
                     isLoading={isDeploying}
                     disabled={isDeploying}
                     onClick={handleDeployDebugger}

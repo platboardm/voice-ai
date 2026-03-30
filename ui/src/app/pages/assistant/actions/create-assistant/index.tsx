@@ -553,7 +553,7 @@ export function CreateAssistantPage() {
                 </DocNoticeBlock>
                 <div className="overflow-auto flex flex-col flex-1">
                   {tools.length > 0 ? (
-                    <section className="grid content-start grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 grow shrink-0 m-4">
+                    <section className="grid content-start grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 grow shrink-0 m-4">
                       {tools.map((itm, idx) => {
                         const isMCP = itm.buildinToolConfig.code === 'mcp';
                         const toolMeta = BUILDIN_TOOLS.find(

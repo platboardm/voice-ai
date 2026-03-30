@@ -228,7 +228,7 @@ export const ParameterEditor: FC<ParameterEditorProps> = ({
             <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 px-3 py-2 border-b border-r border-gray-200 dark:border-gray-700 w-1/4">Key</th>
             <th className="border-b border-r border-gray-200 dark:border-gray-700 w-8" />
             <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 px-3 py-2 border-b border-r border-gray-200 dark:border-gray-700 w-1/4">Value</th>
-            <th className="border-b border-gray-200 dark:border-gray-700 w-10" />
+            <th className="border-b border-gray-200 dark:border-gray-700 w-8" />
           </tr>
         </thead>
         <tbody>

@@ -103,7 +103,7 @@ export function AssistantPage() {
 
       {/* Content */}
       {assistantAction.assistants && assistantAction.assistants.length > 0 ? (
-        <section className="grid content-start grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 grow shrink-0 m-4">
+        <section className="grid content-start grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 grow shrink-0 m-4">
           {assistantAction.assistants.map((ast, idx) => (
             <SingleAssistant key={idx} assistant={ast} />
           ))}

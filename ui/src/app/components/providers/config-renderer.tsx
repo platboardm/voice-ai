@@ -1,11 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Metadata } from '@rapidaai/react';
-import { Dropdown } from '@/app/components/dropdown';
-import { CustomValueDropdown } from '@/app/components/dropdown/custom-value-dropdown';
 import { Popover } from '@/app/components/popover';
-import { Slider } from '@/app/components/form/slider';
-import { IButton } from '@/app/components/form/button';
-import { Bolt, X } from 'lucide-react';
+import { Settings, Close, Add, TrashCan } from '@carbon/icons-react';
 import { cn } from '@/utils';
 import { TextInput, TextArea } from '@/app/components/carbon/form';
 import { TertiaryButton } from '@/app/components/carbon/button';
@@ -13,9 +9,11 @@ import {
   Select as CarbonSelect,
   SelectItem,
   NumberInput,
+  Slider,
   Button,
+  Dropdown as CarbonDropdown,
+  ComboBox,
 } from '@carbon/react';
-import { Add, TrashCan } from '@carbon/icons-react';
 import {
   CategoryConfig,
   ParameterConfig,
@@ -25,12 +23,6 @@ import {
   resolveCategoryParameters,
 } from '@/providers/config-loader';
 import { getDefaultsFromConfig } from '@/providers/config-defaults';
-
-const renderOption = (c: { name: string }) => (
-  <span className="inline-flex items-center gap-2 sm:gap-2.5 max-w-full text-sm font-medium">
-    <span className="truncate capitalize">{c.name}</span>
-  </span>
-);
 
 export const ConfigRenderer: React.FC<{
   provider: string;
@@ -169,27 +161,15 @@ export const ConfigRenderer: React.FC<{
           : sliderParsedValue;
         return (
           <div className={cn(colSpanClass)} key={param.key}>
-            <p className="text-xs font-medium mb-1">{param.label}</p>
-            <div className="flex space-x-2 items-center">
-              <Slider
-                min={param.min ?? 0}
-                max={param.max ?? 1}
-                step={param.step ?? 0.1}
-                value={sliderValue}
-                onSlide={c => updateParameter(param.key, c.toString())}
-              />
-              <NumberInput
-                id={`slider-num-${param.key}`}
-                hideLabel
-                label=""
-                min={param.min}
-                max={param.max}
-                step={param.step}
-                value={Number(getParamValue(param.key)) || 0}
-                onChange={(e: any, { value }: any) => updateParameter(param.key, String(value))}
-                className="!w-20"
-              />
-            </div>
+            <Slider
+              id={`slider-${param.key}`}
+              labelText={param.label}
+              min={param.min ?? 0}
+              max={param.max ?? 1}
+              step={param.step ?? 0.1}
+              value={sliderValue}
+              onChange={({ value: v }: { value: number }) => updateParameter(param.key, v.toString())}
+            />
             {param.helpText && <p className="text-xs text-gray-500 mt-1">{param.helpText}</p>}
           </div>
         );
@@ -303,13 +283,14 @@ export const ConfigRenderer: React.FC<{
             updateParameter,
           )}
         <div>
-          <IButton onClick={() => setAdvancedOpen(!advancedOpen)}>
-            {advancedOpen ? (
-              <X className={cn('w-4 h-4')} strokeWidth="1.5" />
-            ) : (
-              <Bolt className={cn('w-4 h-4')} strokeWidth="1.5" />
-            )}
-          </IButton>
+          <Button
+            hasIconOnly
+            renderIcon={advancedOpen ? Close : Settings}
+            iconDescription={advancedOpen ? 'Close' : 'Advanced settings'}
+            kind="ghost"
+            size="sm"
+            onClick={() => setAdvancedOpen(!advancedOpen)}
+          />
           <Popover
             align="bottom-end"
             open={advancedOpen}
@@ -335,51 +316,51 @@ const DropdownField: React.FC<{
 }> = ({ param, provider, value, onChange, colSpanClass }) => {
   const data = param.data ? loadProviderData(provider, param.data) : [];
   const valueField = param.valueField || 'id';
-  const nameField = param.linkedField?.sourceField || 'name';
-  const currentValue = data.find((item: any) => item[valueField] === value);
-  const fallbackCurrentValue =
-    param.customValue && value
-      ? {
-          [valueField]: value,
-          [nameField]: value,
-          id: value,
-          name: value,
-        }
-      : undefined;
+  const selectedItem = data.find((item: any) => item[valueField] === value) || null;
+
+  if (param.customValue || param.searchable) {
+    return (
+      <div className={cn(colSpanClass)} key={param.key}>
+        <ComboBox
+          id={`combo-${param.key}`}
+          titleText={param.label}
+          items={data}
+          selectedItem={selectedItem}
+          itemToString={(item: any) => item?.name || ''}
+          placeholder={`Select ${param.label.toLowerCase()}`}
+          onChange={({ selectedItem: item }: any) => {
+            if (item) {
+              onChange(item[valueField], item);
+            }
+          }}
+          onInputChange={(inputValue: string) => {
+            if (param.customValue && inputValue && !data.find((d: any) => d.name === inputValue)) {
+              onChange(inputValue);
+            }
+          }}
+          allowCustomValue={param.customValue}
+          helperText={param.helpText}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={cn(colSpanClass)} key={param.key}>
-      <p className="text-xs font-medium mb-1">{param.label}</p>
-      {param.customValue ? (
-        <CustomValueDropdown
-          customValue
-          className="bg-light-background max-w-full dark:bg-gray-950"
-          searchable={param.searchable}
-          currentValue={currentValue || fallbackCurrentValue}
-          setValue={(v: any) => {
-            onChange(v[valueField], v);
-          }}
-          onAddCustomValue={vl => onChange(vl)}
-          allValue={data}
-          placeholder={`Select ${param.label.toLowerCase()}`}
-          option={renderOption}
-          label={renderOption}
-        />
-      ) : (
-        <Dropdown
-          className="bg-light-background max-w-full dark:bg-gray-950"
-          searchable={param.searchable}
-          currentValue={currentValue}
-          setValue={(v: any) => {
-            onChange(v[valueField], v);
-          }}
-          allValue={data}
-          placeholder={`Select ${param.label.toLowerCase()}`}
-          option={renderOption}
-          label={renderOption}
-        />
-      )}
-      {param.helpText && <p className="text-xs text-gray-500 mt-1">{param.helpText}</p>}
+      <CarbonDropdown
+        id={`dropdown-${param.key}`}
+        titleText={param.label}
+        label={`Select ${param.label.toLowerCase()}`}
+        items={data}
+        selectedItem={selectedItem}
+        itemToString={(item: any) => item?.name || ''}
+        onChange={({ selectedItem: item }: any) => {
+          if (item) {
+            onChange(item[valueField], item);
+          }
+        }}
+        helperText={param.helpText}
+      />
     </div>
   );
 };
@@ -490,89 +471,78 @@ function renderTextMainDropdown(
 ) {
   const data = param.data ? loadProviderData(provider, param.data) : [];
   const valueField = param.valueField || 'id';
-  const nameField = param.linkedField?.sourceField || 'name';
   const currentValue = getParamValue(param.key);
-  const linkedValue = param.linkedField ? getParamValue(param.linkedField.key) : '';
-  const fallbackCurrentValue =
-    param.customValue && currentValue
-      ? {
-          [valueField]: currentValue,
-          [nameField]: linkedValue || currentValue,
-          id: currentValue,
-          name: linkedValue || currentValue,
-        }
-      : undefined;
+  const selectedItem = data.find((x: any) => x[valueField] === currentValue) || null;
+
+  const handleSelect = (item: any) => {
+    if (!item) return;
+    if (param.linkedField) {
+      updateMultipleParameters(
+        [
+          { key: param.key, value: item[valueField] },
+          {
+            key: param.linkedField.key,
+            value: item[param.linkedField.sourceField] ?? item[valueField],
+          },
+        ],
+        param,
+      );
+    } else {
+      updateParameter(param.key, item[valueField], param);
+    }
+  };
+
+  const handleCustom = (vl: string) => {
+    if (param.linkedField) {
+      updateMultipleParameters(
+        [
+          { key: param.key, value: vl },
+          { key: param.linkedField.key, value: vl },
+        ],
+        param,
+      );
+    } else {
+      updateParameter(param.key, vl, param);
+    }
+  };
 
   if (param.customValue) {
     return (
-      <CustomValueDropdown
-        customValue
-        className="max-w-full focus-within:border-none! focus-within:outline-hidden! border-none!"
-        currentValue={
-          data.find((x: any) => x[valueField] === currentValue) ||
-          fallbackCurrentValue
-        }
-        setValue={(v: any) => {
-          if (param.linkedField) {
-            updateMultipleParameters(
-              [
-                { key: param.key, value: v[valueField] },
-                {
-                  key: param.linkedField.key,
-                  value: v[param.linkedField.sourceField] ?? v[valueField],
-                },
-              ],
-              param,
-            );
-          } else {
-            updateParameter(param.key, v[valueField], param);
-          }
-        }}
-        onAddCustomValue={vl => {
-          if (param.linkedField) {
-            updateMultipleParameters(
-              [
-                { key: param.key, value: vl },
-                { key: param.linkedField.key, value: vl },
-              ],
-              param,
-            );
-          } else {
-            updateParameter(param.key, vl, param);
-          }
-        }}
-        allValue={data}
+      <ComboBox
+        id={`text-main-combo-${param.key}`}
+        titleText=""
+        hideLabel
+        items={data}
+        selectedItem={selectedItem}
+        itemToString={(item: any) => item?.name || ''}
         placeholder="Select model"
-        option={renderOption}
-        label={renderOption}
+        onChange={({ selectedItem: item }: any) => {
+          if (item) handleSelect(item);
+        }}
+        onInputChange={(inputValue: string) => {
+          if (inputValue && !data.find((d: any) => d.name === inputValue)) {
+            handleCustom(inputValue);
+          }
+        }}
+        allowCustomValue
+        className="[&_.cds--list-box]:!border-none"
       />
     );
   }
 
   return (
-    <Dropdown
-      className="max-w-full focus-within:border-none! focus-within:outline-hidden! border-none!"
-      currentValue={data.find((x: any) => x[valueField] === currentValue)}
-      setValue={(v: any) => {
-        if (param.linkedField) {
-          updateMultipleParameters(
-            [
-              { key: param.key, value: v[valueField] },
-              {
-                key: param.linkedField.key,
-                value: v[param.linkedField.sourceField] ?? '',
-              },
-            ],
-            param,
-          );
-        } else {
-          updateParameter(param.key, v[valueField], param);
-        }
+    <CarbonDropdown
+      id={`text-main-dropdown-${param.key}`}
+      titleText=""
+      hideLabel
+      label="Select model"
+      items={data}
+      selectedItem={selectedItem}
+      itemToString={(item: any) => item?.name || ''}
+      onChange={({ selectedItem: item }: any) => {
+        if (item) handleSelect(item);
       }}
-      allValue={data}
-      placeholder="Select model"
-      option={renderOption}
-      label={renderOption}
+      className="[&_.cds--list-box]:!border-none"
     />
   );
 }

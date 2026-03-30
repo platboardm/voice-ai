@@ -12,15 +12,9 @@ export const DocNoticeBlock: FC<{
   linkText = 'Read documentation',
 }) => {
   return (
-    <div
-      className="flex items-center gap-3 w-full px-4 py-3"
-      style={{
-        backgroundColor: 'var(--cds-notification-info-background-color, #edf5ff)',
-        borderLeft: '3px solid var(--cds-support-info, #0043ce)',
-      }}
-    >
-      <Information size={20} className="shrink-0" style={{ color: 'var(--cds-support-info, #0043ce)' }} />
-      <span className="text-sm flex-1" style={{ color: 'var(--cds-text-primary)' }}>
+    <div className="flex items-center gap-3 w-full px-4 py-3 bg-blue-50 dark:bg-blue-900/20 border-l-[3px] border-blue-600 dark:border-blue-400">
+      <Information size={20} className="shrink-0 text-blue-600 dark:text-blue-400" />
+      <span className="text-sm flex-1 text-gray-800 dark:text-gray-200">
         {children}
       </span>
       <Link

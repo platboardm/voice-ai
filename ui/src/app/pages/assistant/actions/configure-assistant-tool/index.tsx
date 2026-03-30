@@ -140,7 +140,7 @@ const ConfigureAssistantTool: FC<{ assistantId: string }> = ({
 
       <div className="overflow-auto flex flex-col flex-1">
         {axtion.tools.length > 0 ? (
-          <section className="grid content-start grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 grow shrink-0 m-4">
+          <section className="grid content-start grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 grow shrink-0 m-4">
             {axtion.tools.map((itm, idx) => (
               <SelectToolCard
                 className="col-span-1"

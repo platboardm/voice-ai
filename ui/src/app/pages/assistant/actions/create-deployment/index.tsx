@@ -196,7 +196,7 @@ export const ConfigureAssistantDeploymentPage = () => {
       </div>
 
       {hasAnyDeployment ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 content-start m-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 content-start gap-4 m-4">
           {/* Debugger */}
           {assistant?.hasDebuggerdeployment() && (
             <DeploymentCard
@@ -314,13 +314,29 @@ export const ConfigureAssistantDeploymentPage = () => {
           )}
         </div>
       ) : (
-        <div className="flex flex-col flex-1 items-center justify-center">
+        <div className="flex flex-col flex-1 items-center justify-center gap-4">
           <ActionableEmptyMessage
             title="No deployments yet"
             subtitle="Add a channel to make your assistant available to users."
-            action="Add deployment"
-            onActionClick={() => {}}
           />
+          <MenuButton label="Add deployment" size="md" kind="primary">
+            <MenuItem
+              label="Web Widget"
+              onClick={() => navi.goToConfigureWeb(assistantId!)}
+            />
+            <MenuItem
+              label="SDK / API"
+              onClick={() => navi.goToConfigureApi(assistantId!)}
+            />
+            <MenuItem
+              label="Phone Call"
+              onClick={() => navi.goToConfigureCall(assistantId!)}
+            />
+            <MenuItem
+              label="Debugger"
+              onClick={() => navi.goToConfigureDebugger(assistantId!)}
+            />
+          </MenuButton>
         </div>
       )}
     </div>

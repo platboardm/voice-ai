@@ -8,7 +8,7 @@ import {
 } from '@/app/components/carbon/button';
 import { Stack, TextInput, TextArea } from '@/app/components/carbon/form';
 import { ButtonSet, Select, SelectItem, Button, NumberInput } from '@carbon/react';
-import { Add, TrashCan } from '@carbon/icons-react';
+import { Add, TrashCan, ArrowRight } from '@carbon/icons-react';
 import { useCurrentCredential } from '@/hooks/use-credential';
 import { randomMeaningfullName } from '@/utils';
 import { EndpointDropdown } from '@/app/components/dropdown/endpoint-dropdown';
@@ -74,78 +74,54 @@ const ParameterEditor: FC<{
   return (
     <div>
       <p className="text-xs font-medium mb-2">Parameters ({parameters.length})</p>
-      <div className="border border-gray-200 dark:border-gray-700 divide-y divide-gray-200 dark:divide-gray-700">
-        {parameters.map((param, index) => {
-          const keyOptions = getKeyOptions(param.type);
-          return (
-            <div
-              key={index}
-              className="flex items-center gap-2 px-2 py-1.5"
-            >
-              <Select
-                id={`param-type-${index}`}
-                labelText=""
-                hideLabel
-                value={param.type}
-                onChange={e => {
-                  update(index, 'type', e.target.value);
-                  update(index, 'key', '');
-                }}
-                className="!min-w-[120px] flex-shrink-0"
-              >
-                {PARAM_TYPE_OPTIONS.map(o => (
-                  <SelectItem key={o.value} value={o.value} text={o.text} />
-                ))}
-              </Select>
-              {keyOptions ? (
-                <Select
-                  id={`param-key-${index}`}
-                  labelText=""
-                  hideLabel
-                  value={param.key}
-                  onChange={e => update(index, 'key', e.target.value)}
-                  className="flex-1"
-                >
-                  <SelectItem value="" text="Select key" />
-                  {keyOptions.map(o => (
-                    <SelectItem key={o.value} value={o.value} text={o.text} />
-                  ))}
-                </Select>
-              ) : (
-                <TextInput
-                  id={`param-key-${index}`}
-                  labelText=""
-                  hideLabel
-                  value={param.key}
-                  onChange={e => update(index, 'key', e.target.value)}
-                  placeholder="Source key"
-                  size="md"
-                  className="flex-1"
-                />
-              )}
-              <span className="text-xs text-gray-400 shrink-0 px-1">as</span>
-              <TextInput
-                id={`param-value-${index}`}
-                labelText=""
-                hideLabel
-                value={param.value}
-                onChange={e => update(index, 'value', e.target.value)}
-                placeholder="Variable name"
-                size="md"
-                className="flex-1"
-              />
-              <Button
-                hasIconOnly
-                renderIcon={TrashCan}
-                iconDescription="Remove"
-                kind="danger--ghost"
-                size="md"
-                onClick={() => remove(index)}
-              />
-            </div>
-          );
-        })}
-      </div>
+      <table className="w-full border-collapse border border-gray-200 dark:border-gray-700 text-sm [&_input]:!border-none [&_.cds--text-input]:!border-none [&_.cds--text-input]:!outline-none [&_.cds--select-input]:!border-none [&_.cds--form-item]:!m-0">
+        <thead>
+          <tr className="bg-gray-50 dark:bg-gray-900">
+            <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 px-3 py-2 border-b border-r border-gray-200 dark:border-gray-700 w-1/4">Type</th>
+            <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 px-3 py-2 border-b border-r border-gray-200 dark:border-gray-700 w-1/4">Key</th>
+            <th className="border-b border-r border-gray-200 dark:border-gray-700 w-8" />
+            <th className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 px-3 py-2 border-b border-r border-gray-200 dark:border-gray-700 w-1/4">Value</th>
+            <th className="border-b border-gray-200 dark:border-gray-700 w-8" />
+          </tr>
+        </thead>
+        <tbody>
+          {parameters.map((param, index) => {
+            const keyOptions = getKeyOptions(param.type);
+            return (
+              <tr key={index} className="border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                <td className="border-r border-gray-200 dark:border-gray-700 p-0">
+                  <Select id={`param-type-${index}`} labelText="" hideLabel value={param.type} onChange={e => { update(index, 'type', e.target.value); update(index, 'key', ''); }} size="md">
+                    {PARAM_TYPE_OPTIONS.map(o => (
+                      <SelectItem key={o.value} value={o.value} text={o.text} />
+                    ))}
+                  </Select>
+                </td>
+                <td className="border-r border-gray-200 dark:border-gray-700 p-0">
+                  {keyOptions ? (
+                    <Select id={`param-key-${index}`} labelText="" hideLabel value={param.key} onChange={e => update(index, 'key', e.target.value)} size="md">
+                      <SelectItem value="" text="Select key" />
+                      {keyOptions.map(o => (
+                        <SelectItem key={o.value} value={o.value} text={o.text} />
+                      ))}
+                    </Select>
+                  ) : (
+                    <TextInput id={`param-key-${index}`} labelText="" hideLabel value={param.key} onChange={e => update(index, 'key', e.target.value)} placeholder="Source key" size="md" />
+                  )}
+                </td>
+                <td className="border-r border-gray-200 dark:border-gray-700 p-0 text-center text-gray-400">
+                  <ArrowRight size={16} className="mx-auto" />
+                </td>
+                <td className="border-r border-gray-200 dark:border-gray-700 p-0">
+                  <TextInput id={`param-val-${index}`} labelText="" hideLabel value={param.value} onChange={e => update(index, 'value', e.target.value)} placeholder="Variable name" size="md" />
+                </td>
+                <td className="p-0 text-center">
+                  <Button hasIconOnly renderIcon={TrashCan} iconDescription="Remove" kind="danger--ghost" size="sm" onClick={() => remove(index)} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
       <div className="pt-4">
         <TertiaryButton
           size="md"
