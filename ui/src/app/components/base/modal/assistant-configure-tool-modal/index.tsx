@@ -1,5 +1,6 @@
 import React, { FC, useEffect, useState } from 'react';
 import { PrimaryButton, SecondaryButton } from '@/app/components/carbon/button';
+import { CONFIG } from '@/configs';
 import {
   BuildinTool,
   BuildinToolConfig,
@@ -8,7 +9,12 @@ import {
   ValidateToolDefaultOptions,
 } from '@/app/components/tools';
 import { ModalProps } from '@/app/components/base/modal';
-import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/app/components/carbon/modal';
+import {
+  Modal,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+} from '@/app/components/carbon/modal';
 import { Notification } from '@/app/components/carbon/notification';
 
 interface ConfigureAssistantToolDialogProps extends ModalProps {
@@ -35,13 +41,29 @@ interface ConfigureAssistantToolDialogProps extends ModalProps {
 export const ConfigureAssistantToolDialog: FC<
   ConfigureAssistantToolDialogProps
 > = props => {
+  const defaultToolCode =
+    CONFIG.workspace.features?.knowledge !== false
+      ? 'knowledge_retrieval'
+      : 'endpoint';
+
+  const normalizeToolCode = (code?: string) => {
+    if (!code) return defaultToolCode;
+    if (
+      CONFIG.workspace.features?.knowledge === false &&
+      code === 'knowledge_retrieval'
+    ) {
+      return 'endpoint';
+    }
+    return code;
+  };
+
   //
   const [toolDefinition, setToolDefinition] = useState<{
     name: string;
     description: string;
     parameters: string;
   }>(
-    GetDefaultToolDefintion('knowledge_retrieval', {
+    GetDefaultToolDefintion(defaultToolCode, {
       name: '',
       description: '',
       parameters: '',
@@ -51,19 +73,19 @@ export const ConfigureAssistantToolDialog: FC<
   //
   const [buildinToolConfig, setBuildinToolConfig] = useState<BuildinToolConfig>(
     {
-      code: 'knowledge_retrieval',
-      parameters: GetDefaultToolConfigIfInvalid('knowledge_retrieval', []),
+      code: defaultToolCode,
+      parameters: GetDefaultToolConfigIfInvalid(defaultToolCode, []),
     },
   );
 
   const [errorMessage, setErrorMessage] = useState('');
   const resetState = () => {
     setBuildinToolConfig({
-      code: 'knowledge_retrieval',
-      parameters: GetDefaultToolConfigIfInvalid('knowledge_retrieval', []),
+      code: defaultToolCode,
+      parameters: GetDefaultToolConfigIfInvalid(defaultToolCode, []),
     });
     setToolDefinition(
-      GetDefaultToolDefintion('knowledge_retrieval', {
+      GetDefaultToolDefintion(defaultToolCode, {
         name: '',
         description: '',
         parameters: '',
@@ -75,26 +97,27 @@ export const ConfigureAssistantToolDialog: FC<
 
   useEffect(() => {
     if (props.modalOpen && props.initialData) {
+      const toolCode = normalizeToolCode(
+        props.initialData.buildinToolConfig.code,
+      );
       setToolDefinition(
-        GetDefaultToolDefintion(
-          props.initialData.buildinToolConfig.code || 'knowledge_retrieval',
-          {
-            name: props.initialData.name || '',
-            description: props.initialData.description || '',
-            parameters: props.initialData.fields || '',
-          },
+        GetDefaultToolDefintion(toolCode, {
+          name: props.initialData.name || '',
+          description: props.initialData.description || '',
+          parameters: props.initialData.fields || '',
+        }),
+      );
+      setBuildinToolConfig({
+        code: toolCode,
+        parameters: GetDefaultToolConfigIfInvalid(
+          toolCode,
+          props.initialData.buildinToolConfig.parameters || [],
         ),
-      );
-      setBuildinToolConfig(
-        props.initialData.buildinToolConfig || {
-          code: 'knowledge_retrieval',
-          parameters: GetDefaultToolConfigIfInvalid('knowledge_retrieval', []),
-        },
-      );
+      });
     } else if (!props.modalOpen) {
       resetState();
     }
-  }, [props.initialData, props.modalOpen]);
+  }, [defaultToolCode, props.initialData, props.modalOpen]);
 
   const onChangeBuildinToolConfig = (code: string) => {
     setBuildinToolConfig({
@@ -179,7 +202,11 @@ export const ConfigureAssistantToolDialog: FC<
   };
 
   return (
-    <Modal open={props.modalOpen} onClose={() => props.setModalOpen(false)} size="lg">
+    <Modal
+      open={props.modalOpen}
+      onClose={() => props.setModalOpen(false)}
+      size="lg"
+    >
       <ModalHeader
         label="Tools"
         title="Configure Assistant Tool"
