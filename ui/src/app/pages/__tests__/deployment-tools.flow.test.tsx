@@ -242,10 +242,6 @@ jest.mock('@/app/components/carbon/modal', () => ({
   ModalFooter: ({ children }: any) => <div>{children}</div>,
 }));
 
-jest.mock('@/app/components/popover', () => ({
-  Popover: ({ children, open }: any) => (open ? <div>{children}</div> : null),
-}));
-
 jest.mock('@/app/components/base/cards', () => ({
   BaseCard: ({ children }: any) => <div>{children}</div>,
 }));
