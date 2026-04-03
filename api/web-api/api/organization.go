@@ -10,6 +10,7 @@ import (
 
 	config "github.com/rapidaai/api/web-api/config"
 	internal_service "github.com/rapidaai/api/web-api/internal/service"
+	internal_billing_service "github.com/rapidaai/api/web-api/internal/service/billing"
 	internal_organization_service "github.com/rapidaai/api/web-api/internal/service/organization"
 	internal_user_service "github.com/rapidaai/api/web-api/internal/service/user"
 	internal_vault_service "github.com/rapidaai/api/web-api/internal/service/vault"
@@ -30,6 +31,7 @@ type webOrganizationApi struct {
 	userService         internal_service.UserService
 	vaultService        internal_service.VaultService
 	projectService      internal_service.ProjectService
+	billingService      internal_service.BillingService
 }
 
 type webOrganizationRPCApi struct {
@@ -52,6 +54,7 @@ func NewOrganizationRPC(config *config.WebAppConfig, logger commons.Logger,
 			redis:               redis,
 			organizationService: internal_organization_service.NewOrganizationService(logger, postgres),
 			userService:         internal_user_service.NewUserService(logger, postgres),
+			billingService:      internal_billing_service.NewBillingService(logger, postgres),
 		},
 	}
 }
@@ -69,6 +72,7 @@ func NewOrganizationGRPC(config *config.WebAppConfig, logger commons.Logger,
 			userService:         internal_user_service.NewUserService(logger, postgres),
 			projectService:      internal_project_service.NewProjectService(logger, postgres),
 			vaultService:        internal_vault_service.NewVaultService(logger, postgres),
+			billingService:      internal_billing_service.NewBillingService(logger, postgres),
 		},
 	}
 }
@@ -169,6 +173,12 @@ func (orgG *webOrganizationGRPCApi) CreateOrganization(c context.Context, irRequ
 				ErrorMessage: err.Error(),
 				HumanMessage: "Unable to assign role for your organization.",
 			}}, nil
+	}
+
+	// auto-provision default billing plan
+	_, bErr := orgG.billingService.ProvisionDefaultPlan(c, iAuth, aOrg.Id)
+	if bErr != nil {
+		orgG.logger.Errorf("failed to provision default billing plan for org %d: %v", aOrg.Id, bErr)
 	}
 
 	org := &protos.Organization{}

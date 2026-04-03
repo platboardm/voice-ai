@@ -35,6 +35,9 @@ export interface WorkspaceConfig {
   features?: {
     knowledge?: boolean;
     telemetry?: boolean;
+    users?: boolean;
+    projects?: boolean;
+    billing?: boolean;
   };
 }
 

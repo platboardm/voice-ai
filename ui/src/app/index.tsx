@@ -51,6 +51,9 @@ export function App() {
               path="/organization/*"
               element={<WebRoutes.OrganizationRoute />}
             />
+            {CONFIG.workspace.features?.billing !== false && (
+              <Route path="/billing/*" element={<WebRoutes.BillingRoute />} />
+            )}
             <Route path="/preview/*" element={<WebRoutes.PreviewRoute />} />
             <Route
               path="/connect-common/*"

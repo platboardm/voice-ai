@@ -37,7 +37,10 @@
         },
         "features": {
             "knowledge": true,
-            "telemetry": true
+            "telemetry": true,
+            "users": true,
+            "projects": true,
+            "billing": true
         }
     }
 }

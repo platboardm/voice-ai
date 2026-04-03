@@ -9,12 +9,14 @@ import (
 )
 
 type authPrinciple struct {
-	user               *internal_entity.UserAuth
-	userAuthToken      *internal_entity.UserAuthToken
-	userOrgRole        *internal_entity.UserOrganizationRole
-	userProjectRoles   []*internal_entity.UserProjectRole
-	currentProjectRole *types.ProjectRole
-	featurePermissions []*internal_entity.UserFeaturePermission
+	user                *internal_entity.UserAuth
+	userAuthToken       *internal_entity.UserAuthToken
+	userOrgRole         *internal_entity.UserOrganizationRole
+	userProjectRoles    []*internal_entity.UserProjectRole
+	currentProjectRole  *types.ProjectRole
+	featurePermissions  []*internal_entity.UserFeaturePermission
+	billingSubscription *internal_entity.BillingSubscription
+	cachedBillingPlan   *types.BillingPlanInfo
 }
 
 func (aP *authPrinciple) GetAuthToken() *types.AuthToken {
@@ -97,6 +99,7 @@ func (ap *authPrinciple) PlainAuthPrinciple() types.PlainAuthPrinciple {
 	alt.OrganizationRole = ap.GetOrganizationRole()
 	alt.ProjectRoles = ap.GetProjectRoles()
 	alt.FeaturePermissions = ap.GetFeaturePermission()
+	alt.BillingPlan = ap.GetBillingPlan()
 	return alt
 }
 
@@ -162,6 +165,36 @@ func (aP *authPrinciple) GetCurrentToken() string {
 		return tk.Token
 	}
 	return ""
+}
+
+func (aP *authPrinciple) GetBillingPlan() *types.BillingPlanInfo {
+	if aP.cachedBillingPlan != nil {
+		return aP.cachedBillingPlan
+	}
+	if aP.billingSubscription == nil || aP.billingSubscription.Plan.Id == 0 {
+		return nil
+	}
+	quotas := make(map[string]int64, len(aP.billingSubscription.Plan.Quotas))
+	for _, q := range aP.billingSubscription.Plan.Quotas {
+		quotas[q.ResourceType] = q.QuotaLimit
+	}
+	aP.cachedBillingPlan = &types.BillingPlanInfo{
+		PlanSlug: aP.billingSubscription.Plan.Slug,
+		PlanName: aP.billingSubscription.Plan.Name,
+		Quotas:   quotas,
+	}
+	return aP.cachedBillingPlan
+}
+
+func (aP *authPrinciple) GetQuotaLimit(resource string) int64 {
+	bp := aP.GetBillingPlan()
+	if bp == nil {
+		return 0
+	}
+	if limit, ok := bp.Quotas[resource]; ok {
+		return limit
+	}
+	return 0
 }
 
 func (ap *authPrinciple) Type() string {

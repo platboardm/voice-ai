@@ -52,6 +52,7 @@ func WebApiRoute(
 	protos.RegisterProjectServiceServer(S, webApi.NewProjectGRPC(Cfg, Logger, Postgres, Redis))
 	protos.RegisterConnectServiceServer(S, webApi.NewConnectGRPC(Cfg, &Cfg.OAuthConfig, Logger, Postgres))
 	protos.RegisterNotificationServiceServer(S, webApi.NewNotificationGRPC(Cfg, Logger, Postgres, Redis))
+	protos.RegisterBillingServiceServer(S, webApi.NewBillingGRPC(Cfg, Logger, Postgres))
 }
 
 func ProxyApiRoute(Cfg *config.WebAppConfig,

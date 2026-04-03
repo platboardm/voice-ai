@@ -48,6 +48,15 @@ func (authenticator *userAuthenticator) Authorize(ctx context.Context, authToken
 			ProjectName: r.GetProjectName(),
 		})
 	}
+	var billingPlan *types.BillingPlanInfo
+	if bp := ath.GetBillingPlan(); bp != nil {
+		billingPlan = &types.BillingPlanInfo{
+			PlanSlug: bp.GetPlanSlug(),
+			PlanName: bp.GetPlanName(),
+			Quotas:   bp.GetQuotas(),
+		}
+	}
+
 	authenticator.logger.Benchmark("Benchmarking: userAuthenticator.Authorize time taken", time.Since(start))
 	return &types.PlainAuthPrinciple{
 		User: types.UserInfo{
@@ -68,6 +77,7 @@ func (authenticator *userAuthenticator) Authorize(ctx context.Context, authToken
 			OrganizationName: ath.GetOrganizationRole().GetOrganizationName(),
 		},
 		ProjectRoles: _rls,
+		BillingPlan:  billingPlan,
 		CurrentToken: authToken,
 	}, nil
 }

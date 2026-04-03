@@ -11,6 +11,7 @@ import (
 
 	internal_entity "github.com/rapidaai/api/web-api/internal/entity"
 	internal_services "github.com/rapidaai/api/web-api/internal/service"
+	internal_billing_service "github.com/rapidaai/api/web-api/internal/service/billing"
 	"github.com/rapidaai/pkg/ciphers"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/connectors"
@@ -23,21 +24,24 @@ import (
 var DEFAULT_USER_FEATURE_PERMISSION = []string{"/deployment/.*", "/knowledge/.*", "/observability/.*"}
 
 type userService struct {
-	logger   commons.Logger
-	postgres connectors.PostgresConnector
+	logger         commons.Logger
+	postgres       connectors.PostgresConnector
+	billingService internal_services.BillingService
 }
 
 func NewUserService(logger commons.Logger, postgres connectors.PostgresConnector) internal_services.UserService {
 	return &userService{
-		logger:   logger,
-		postgres: postgres,
+		logger:         logger,
+		postgres:       postgres,
+		billingService: internal_billing_service.NewBillingService(logger, postgres),
 	}
 }
 
 func NewAuthenticator(logger commons.Logger, postgres connectors.PostgresConnector) types.Authenticator {
 	return &userService{
-		logger:   logger,
-		postgres: postgres,
+		logger:         logger,
+		postgres:       postgres,
+		billingService: internal_billing_service.NewBillingService(logger, postgres),
 	}
 }
 
@@ -88,7 +92,13 @@ func (aS *userService) Authenticate(ctx context.Context, email string, password 
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
-	return &authPrinciple{user: &aUser, userAuthToken: &aToken, userOrgRole: &rt, userProjectRoles: prjs, featurePermissions: permissions}, nil
+
+	var billingSub *internal_entity.BillingSubscription
+	if rt.OrganizationId > 0 {
+		billingSub, _ = aS.billingService.GetSubscription(ctx, rt.OrganizationId)
+	}
+
+	return &authPrinciple{user: &aUser, userAuthToken: &aToken, userOrgRole: &rt, userProjectRoles: prjs, featurePermissions: permissions, billingSubscription: billingSub}, nil
 }
 
 func (aS *userService) getUserProjectRoles(ctx context.Context, userId uint64) []*internal_entity.UserProjectRole {
@@ -134,7 +144,7 @@ func (aS *userService) Create(ctx context.Context, name string, email string, pa
 		return nil, err
 	}
 
-	return &authPrinciple{user: user, userAuthToken: aTh}, nil
+	return &authPrinciple{user: user, userAuthToken: aTh, billingSubscription: nil}, nil
 }
 
 func (aS *userService) Get(ctx context.Context, email string) (*internal_entity.UserAuth, error) {
@@ -183,7 +193,13 @@ func (aS *userService) Activate(ctx context.Context, userId uint64, name string,
 	}
 
 	prjs := aS.getUserProjectRoles(ctx, userId)
-	return &authPrinciple{user: &ct, userAuthToken: aTh, userOrgRole: &rt, userProjectRoles: prjs}, nil
+
+	var billingSub *internal_entity.BillingSubscription
+	if rt.OrganizationId > 0 {
+		billingSub, _ = aS.billingService.GetSubscription(ctx, rt.OrganizationId)
+	}
+
+	return &authPrinciple{user: &ct, userAuthToken: aTh, userOrgRole: &rt, userProjectRoles: prjs, billingSubscription: billingSub}, nil
 }
 
 func (aS *userService) CreateNewAuthToken(ctx context.Context, userId uint64) (*internal_entity.UserAuthToken, error) {
@@ -369,7 +385,13 @@ func (aS *userService) AuthPrinciple(ctx context.Context, userId uint64) (types.
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
-	return &authPrinciple{user: &userAuth, userAuthToken: &authToken, userOrgRole: &orgRole, userProjectRoles: prjs, featurePermissions: permissions}, nil
+
+	var billingSub *internal_entity.BillingSubscription
+	if orgRole.OrganizationId > 0 {
+		billingSub, _ = aS.billingService.GetSubscription(ctx, orgRole.OrganizationId)
+	}
+
+	return &authPrinciple{user: &userAuth, userAuthToken: &authToken, userOrgRole: &orgRole, userProjectRoles: prjs, featurePermissions: permissions, billingSubscription: billingSub}, nil
 }
 
 func (aS *userService) Authorize(ctx context.Context, token string, userId uint64) (types.Principle, error) {
@@ -420,7 +442,13 @@ func (aS *userService) Authorize(ctx context.Context, token string, userId uint6
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
-	return &authPrinciple{user: &aUser, userAuthToken: &ct, userOrgRole: &rt, userProjectRoles: prjs, featurePermissions: permissions}, nil
+
+	var billingSub *internal_entity.BillingSubscription
+	if rt.OrganizationId > 0 {
+		billingSub, _ = aS.billingService.GetSubscription(ctx, rt.OrganizationId)
+	}
+
+	return &authPrinciple{user: &aUser, userAuthToken: &ct, userOrgRole: &rt, userProjectRoles: prjs, featurePermissions: permissions, billingSubscription: billingSub}, nil
 }
 
 func (aS *userService) GetUser(ctx context.Context, userId uint64) (*internal_entity.UserAuth, error) {

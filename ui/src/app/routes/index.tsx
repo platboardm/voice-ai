@@ -15,3 +15,4 @@ export {
 } from '@/app/routes/connect-knowledge';
 export { ConnectActionRoute } from '@/app/routes/connect-action';
 export { PreviewRoute } from '@/app/routes/preview';
+export { BillingRoute } from '@/app/routes/billing';

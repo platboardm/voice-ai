@@ -2,6 +2,7 @@ import { Observability } from '@/app/components/navigation/sidebar/observability
 import { Deployment } from '@/app/components/navigation/sidebar/deployment';
 import { Dashboard } from '@/app/components/navigation/sidebar/dashboard';
 import { Team } from '@/app/components/navigation/sidebar/team';
+import { Billing } from '@/app/components/navigation/sidebar/billing';
 import { Project } from '@/app/components/navigation/sidebar/project';
 import { Vault } from '@/app/components/navigation/sidebar/vault';
 import { Knowledge } from '@/app/components/navigation/sidebar/knowledge';
@@ -113,8 +114,9 @@ export function SidebarNavigation(props: {}) {
               Organizations
             </div>
             <ul>
-              <Team />
-              <Project />
+              {workspace.features?.users !== false && <Team />}
+              {workspace.features?.projects !== false && <Project />}
+              {workspace.features?.billing !== false && <Billing />}
             </ul>
           </div>
         </nav>

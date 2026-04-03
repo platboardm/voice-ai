@@ -15,6 +15,12 @@ import (
 /*
 To support all the principle
 */
+type BillingPlanInfo struct {
+	PlanSlug string           `json:"planSlug"`
+	PlanName string           `json:"planName"`
+	Quotas   map[string]int64 `json:"quotas"`
+}
+
 type PlainAuthPrinciple struct {
 	User               UserInfo             `json:"user"`
 	Token              AuthToken            `json:"token"`
@@ -22,6 +28,7 @@ type PlainAuthPrinciple struct {
 	ProjectRoles       []*ProjectRole       `json:"projectRoles"`
 	CurrentProjectRole *ProjectRole         `json:"currentProjectRole"`
 	FeaturePermissions []*FeaturePermission `json:"featurePermissions"`
+	BillingPlan        *BillingPlanInfo      `json:"billingPlan"`
 	CurrentToken       string               `json:"currentToken"`
 }
 
@@ -166,6 +173,20 @@ func (aP *PlainAuthPrinciple) SwitchProject(projectId uint64) error {
 	}
 	aP.CurrentProjectRole = aP.ProjectRoles[idx]
 	return nil
+}
+
+func (aP *PlainAuthPrinciple) GetBillingPlan() *BillingPlanInfo {
+	return aP.BillingPlan
+}
+
+func (aP *PlainAuthPrinciple) GetQuotaLimit(resource string) int64 {
+	if aP.BillingPlan == nil {
+		return 0
+	}
+	if limit, ok := aP.BillingPlan.Quotas[resource]; ok {
+		return limit
+	}
+	return 0
 }
 
 func (aP *PlainAuthPrinciple) Type() string {

@@ -81,6 +81,8 @@ type Principle interface {
 	PlainAuthPrinciple() PlainAuthPrinciple
 	SwitchProject(projectId uint64) error
 	GetFeaturePermission() []*FeaturePermission
+	GetBillingPlan() *BillingPlanInfo
+	GetQuotaLimit(resource string) int64
 }
 
 func GetAuthPrincipleGPRC(ctx context.Context) (Principle, bool) {
