@@ -38,9 +38,9 @@ func NewOutboundDispatcher(deps TelephonyDispatcherDeps) *OutboundDispatcher {
 }
 
 func (d *OutboundDispatcher) Dispatch(ctx context.Context, contextID string) error {
-	cc, err := d.store.Claim(ctx, contextID)
+	cc, err := d.store.Get(ctx, contextID)
 	if err != nil {
-		d.logger.Errorf("outbound dispatcher: failed to claim call context %s: %v", contextID, err)
+		d.logger.Errorf("outbound dispatcher: failed to resolve call context %s: %v", contextID, err)
 		return err
 	}
 
@@ -49,7 +49,7 @@ func (d *OutboundDispatcher) Dispatch(ctx context.Context, contextID string) err
 
 	if err := d.performOutbound(ctx, cc); err != nil {
 		d.logger.Errorf("outbound dispatcher[%s]: call failed for contextId=%s: %v", cc.Provider, contextID, err)
-		if updateErr := d.store.UpdateField(ctx, contextID, "status", callcontext.StatusFailed); updateErr != nil {
+		if updateErr := d.store.UpdateField(ctx, contextID, "status", callcontext.StatusClaimed); updateErr != nil {
 			d.logger.Errorf("outbound dispatcher[%s]: failed to update status for %s: %v", cc.Provider, contextID, updateErr)
 		}
 		return err

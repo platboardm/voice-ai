@@ -442,37 +442,37 @@ func (s *Session) GetVaultCredential() *protos.VaultCredential {
 	return s.vaultCredential
 }
 
-// SendEvent sends an event notification (non-blocking)
+// SendEvent sends an event notification (non-blocking).
 func (s *Session) SendEvent(event Event) {
 	if s.ended.Load() {
 		return
 	}
-	defer func() { recover() }()
 	select {
 	case s.eventChan <- event:
 	default:
-		// Event dropped if channel is full
 	}
 }
 
-// SendError sends an error to the error channel (non-blocking)
+// SendError sends an error to the error channel (non-blocking).
 func (s *Session) SendError(err error) {
 	if s.ended.Load() {
 		return
 	}
-	defer func() { recover() }()
 	select {
 	case s.errorChan <- err:
 	default:
-		// Error dropped if channel is full
 	}
 }
 
-// End terminates the SIP session gracefully
+// End terminates the SIP session gracefully. This is the single teardown function —
+// all triggers (BYE, pipeline end, streamer close) route here. Owns all side effects:
+// 1. Send BYE via onDisconnect callback
+// 2. Stop RTP
+// 3. Cancel context
+// 4. Set terminal state
 func (s *Session) End() {
-	// Use atomic to ensure End is only called once
 	if !s.ended.CompareAndSwap(false, true) {
-		return // Already ended
+		return
 	}
 
 	s.mu.RLock()
@@ -482,17 +482,21 @@ func (s *Session) End() {
 		s.SetState(CallStateEnding)
 	}
 
+	// Send BYE to remote party (clears callback to prevent double-send)
+	s.Disconnect()
+
+	// Stop RTP
 	s.mu.Lock()
 	rtpHandler := s.rtpHandler
 	s.rtpHandler = nil
 	s.mu.Unlock()
-
 	if rtpHandler != nil {
 		if err := rtpHandler.Stop(); err != nil && s.logger != nil {
 			s.logger.Warnw("Error stopping RTP handler", "error", err, "call_id", s.info.CallID)
 		}
 	}
 
+	// Cancel context — unblocks anything waiting on session.Context()
 	s.cancel()
 
 	s.mu.RLock()
@@ -502,9 +506,6 @@ func (s *Session) End() {
 		s.SetState(CallStateEnded)
 	}
 
-	// Close channels safely
-	s.closeChannels()
-
 	if s.logger != nil {
 		s.logger.Info("Session ended",
 			"call_id", s.info.CallID,
@@ -512,16 +513,6 @@ func (s *Session) End() {
 	}
 }
 
-// closeChannels safely closes all session channels
-func (s *Session) closeChannels() {
-	defer func() {
-		// Recover from panic if channel is already closed
-		recover()
-	}()
-
-	close(s.eventChan)
-	close(s.errorChan)
-}
 
 // IsActive returns whether the session is still active
 func (s *Session) IsActive() bool {

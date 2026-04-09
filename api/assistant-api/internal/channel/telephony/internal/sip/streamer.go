@@ -259,7 +259,9 @@ func (s *Streamer) handleInterruption() error {
 	return nil
 }
 
-// Close sends SIP BYE to the remote party, then releases all local resources.
+// Close signals the session to tear down. session.End() owns all side effects:
+// BYE (via onDisconnect callback), RTP stop, context cancel, state transition.
+// Streamer only cancels its own local context and resets buffers.
 func (s *Streamer) Close() error {
 	if !s.closed.CompareAndSwap(false, true) {
 		return nil
@@ -267,24 +269,12 @@ func (s *Streamer) Close() error {
 
 	s.cancel()
 	s.BaseStreamer.Cancel()
-
-	s.mu.Lock()
-	rtpHandler := s.rtpHandler
-	session := s.session
-	s.rtpHandler = nil
-	s.session = nil
-	s.mu.Unlock()
-
 	s.ResetInputBuffer()
 
-	if session != nil {
-		session.Disconnect()
-	}
-	if rtpHandler != nil {
-		if err := rtpHandler.Stop(); err != nil {
-			s.Logger.Warn("Error stopping RTP handler", "error", err)
-		}
-	}
+	s.mu.Lock()
+	session := s.session
+	s.mu.Unlock()
+
 	if session != nil {
 		session.End()
 	}

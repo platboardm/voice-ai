@@ -73,7 +73,7 @@ func NewStreamer(
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	outputCtx, outputCancel := context.WithCancel(ctx)
+	outputCtx, outputCancel := context.WithCancel(context.Background())
 
 	as := &Streamer{
 		BaseTelephonyStreamer: internal_telephony_base.NewBaseTelephonyStreamer(
@@ -107,7 +107,12 @@ func (as *Streamer) sendAudioChunk(chunk *internal_asterisk.AudioChunk) error {
 	if as.conn == nil {
 		return nil
 	}
-	return as.writeFrame(FrameTypeAudio, chunk.Data)
+	if err := as.writeFrame(FrameTypeAudio, chunk.Data); err != nil {
+		// Connection dead — stop output sender
+		as.outputCancel()
+		return err
+	}
+	return nil
 }
 
 func (as *Streamer) writeFrame(frameType byte, payload []byte) error {

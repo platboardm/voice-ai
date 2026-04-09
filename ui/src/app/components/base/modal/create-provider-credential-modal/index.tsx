@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import {
   ConnectionConfig,
   CreateProviderCredentialRequest,
@@ -27,6 +27,7 @@ import { connectionConfig } from '@/configs';
 import { useProviderContext } from '@/context/provider-context';
 import { Struct } from 'google-protobuf/google/protobuf/struct_pb';
 import { INTEGRATION_PROVIDER, RapidaProvider } from '@/providers';
+import { createPortal } from 'react-dom';
 
 interface CreateProviderCredentialDialogProps extends ModalProps {
   currentProvider?: string | null;
@@ -35,6 +36,7 @@ interface CreateProviderCredentialDialogProps extends ModalProps {
 export function CreateProviderCredentialDialog(
   props: CreateProviderCredentialDialogProps,
 ) {
+  const keyNameInputId = useId();
   const { authId, projectId, token } = useCurrentCredential();
   const [provider, setProvider] = useState<RapidaProvider | null>(null);
   const providerCtx = useProviderContext();
@@ -118,12 +120,14 @@ export function CreateProviderCredentialDialog(
       });
   };
 
-  return (
+  const modalContent = (
     <Modal
       open={props.modalOpen}
       onClose={() => props.setModalOpen(false)}
       size="sm"
-      selectorPrimaryFocus="#credential-key-name"
+      className="!z-999999"
+      containerClassName="!z-999999"
+      selectorPrimaryFocus={`[id="${keyNameInputId}"]`}
       preventCloseOnClickOutside
     >
       <ModalHeader
@@ -148,7 +152,7 @@ export function CreateProviderCredentialDialog(
             }}
           />
           <TextInput
-            id="credential-key-name"
+            id={keyNameInputId}
             labelText="Key Name"
             placeholder="Assign a unique name to this provider key"
             value={keyName}
@@ -204,6 +208,10 @@ export function CreateProviderCredentialDialog(
       </ModalFooter>
     </Modal>
   );
+
+  if (typeof document === 'undefined') return modalContent;
+
+  return createPortal(modalContent, document.body);
 }
 
 function CredentialKeyValueField({

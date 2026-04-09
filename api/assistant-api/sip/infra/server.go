@@ -756,13 +756,12 @@ func (s *Server) handleInvite(req *sip.Request, tx sip.ServerTransaction) {
 	}
 	session.SetState(CallStateConnected)
 
-	// Register the onDisconnect callback so that closing the session sends a SIP BYE.
-	// Captures the server reference in the closure — the session itself doesn't need
-	// to know about SIP signaling details.
+	// Register the onDisconnect callback — sends SIP BYE and removes from session map.
+	// Called by session.End() before RTP/context cleanup. Does NOT call session.End()
+	// (that would recurse). The session owns the full teardown sequence.
 	session.SetOnDisconnect(func(sess *Session) {
-		if err := s.EndCall(sess); err != nil {
-			s.logger.Warnw("onDisconnect: EndCall failed", "error", err, "call_id", callID)
-		}
+		s.sendBye(sess)
+		s.removeSession(callID)
 	})
 
 	s.logger.Infow("SIP call answered",
@@ -1387,51 +1386,42 @@ func (s *Server) GetSession(callID string) (*Session, bool) {
 //
 // This ensures the remote PBX/provider properly tears down the call leg
 // (e.g., Asterisk removes from bridge and frees channel).
+// EndCall terminates a call. Delegates to session.End() which owns all teardown:
+// BYE (via onDisconnect), RTP stop, context cancel, state transition.
 func (s *Server) EndCall(session *Session) error {
 	if session == nil {
 		return fmt.Errorf("session is nil")
 	}
+	session.End()
+	return nil
+}
 
+// sendBye sends SIP BYE to the remote party via the appropriate dialog session.
+// Called by the onDisconnect callback during session.End().
+func (s *Server) sendBye(session *Session) {
 	callID := session.GetCallID()
 
-	// For outbound calls, send BYE via the UAC dialog session.
-	// dialogClientSession.Bye() constructs a proper in-dialog BYE with correct
-	// To/From tags, CSeq, and Route headers derived from the dialog state.
 	if ds := session.GetDialogClientSession(); ds != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := ds.Bye(ctx); err != nil {
 			s.logger.Warnw("Failed to send BYE for outbound call",
-				"call_id", callID,
-				"error", err)
+				"call_id", callID, "error", err)
 		} else {
-			s.logger.Infow("Sent BYE for outbound call",
-				"call_id", callID)
+			s.logger.Infow("Sent BYE for outbound call", "call_id", callID)
 		}
 	}
 
-	// For inbound calls, send BYE via the UAS dialog session.
-	// dialogServerSession.Bye() constructs a BYE using the original INVITE's
-	// Contact, To/From tags, and Record-Route headers to properly route the
-	// request back to the caller.
 	if ds := session.GetDialogServerSession(); ds != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := ds.Bye(ctx); err != nil {
 			s.logger.Warnw("Failed to send BYE for inbound call",
-				"call_id", callID,
-				"error", err)
+				"call_id", callID, "error", err)
 		} else {
-			s.logger.Infow("Sent BYE for inbound call",
-				"call_id", callID)
+			s.logger.Infow("Sent BYE for inbound call", "call_id", callID)
 		}
 	}
-
-	// Remove session from active sessions (releases RTP port)
-	s.removeSession(callID)
-
-	session.End()
-	return nil
 }
 
 // MakeCall initiates an outbound SIP call using the DialogClientCache.
@@ -1566,12 +1556,12 @@ func (s *Server) MakeCall(ctx context.Context, cfg *Config, toURI, fromURI strin
 		inviteHeaders = append(inviteHeaders, sip.NewHeader(name, value))
 	}
 
-	// Log all INVITE headers before sending
+	// Log INVITE header names only (values may contain credentials or secrets)
 	headerNames := make([]string, 0, len(inviteHeaders))
 	for _, h := range inviteHeaders {
-		headerNames = append(headerNames, h.Name()+": "+h.Value())
+		headerNames = append(headerNames, h.Name())
 	}
-	s.logger.Infow("MakeCall INVITE headers", "headers", headerNames)
+	s.logger.Infow("MakeCall INVITE headers", "header_names", headerNames, "count", len(inviteHeaders))
 
 	// Send INVITE via DialogClientCache — the cache stores the dialog once established
 	// so that incoming BYE/re-INVITE can be matched to it via dialogClientCache.ReadBye
@@ -1640,6 +1630,13 @@ func (s *Server) MakeCall(ctx context.Context, cfg *Config, toURI, fromURI strin
 		session.SetMetadata(k, v)
 	}
 
+	// Register onDisconnect — sends BYE and removes from session map.
+	// Same pattern as inbound (handleInvite).
+	session.SetOnDisconnect(func(sess *Session) {
+		s.sendBye(sess)
+		s.removeSession(callID)
+	})
+
 	// Register session before waiting for answer
 	s.mu.Lock()
 	s.sessions[callID] = session
@@ -1700,11 +1697,10 @@ func (s *Server) handleOutboundDialog(session *Session, rtpHandler *RTPHandler, 
 						"www_authenticate", wwwAuth.Value(),
 						"auth_username", session.config.Username)
 				}
-				// Log the Authorization header from the INVITE request (if present from a retry)
 				if authHdr := dialogSession.InviteRequest.GetHeader("Authorization"); authHdr != nil {
 					s.logger.Debugw("SIP digest Authorization sent",
 						"call_id", callID,
-						"authorization", authHdr.Value())
+						"has_authorization", true)
 				}
 			}
 			if statusCode == 407 {
@@ -1717,7 +1713,7 @@ func (s *Server) handleOutboundDialog(session *Session, rtpHandler *RTPHandler, 
 				if authHdr := dialogSession.InviteRequest.GetHeader("Proxy-Authorization"); authHdr != nil {
 					s.logger.Debugw("SIP digest Proxy-Authorization sent",
 						"call_id", callID,
-						"proxy_authorization", authHdr.Value())
+						"has_proxy_authorization", true)
 				}
 			}
 
@@ -1730,22 +1726,13 @@ func (s *Server) handleOutboundDialog(session *Session, rtpHandler *RTPHandler, 
 		if errors.As(err, &dialogErr) {
 			// If 401/407 after auth attempt, it means credentials are wrong
 			if dialogErr.Res.StatusCode == 401 || dialogErr.Res.StatusCode == 407 {
-				// Capture the Authorization header that was sent for diagnosis
-				authSent := "none"
-				if authHdr := dialogSession.InviteRequest.GetHeader("Authorization"); authHdr != nil {
-					authSent = authHdr.Value()
-				} else if authHdr := dialogSession.InviteRequest.GetHeader("Proxy-Authorization"); authHdr != nil {
-					authSent = authHdr.Value()
-				}
 				s.logger.Errorw("Outbound call authentication failed — check SIP credentials in vault",
 					"call_id", callID,
 					"status", dialogErr.Res.StatusCode,
 					"reason", dialogErr.Res.Reason,
 					"auth_username", session.config.Username,
-					"auth_realm", session.config.Realm,
 					"auth_password_set", len(session.config.Password) > 0,
 					"digest_uri", dialogSession.InviteRequest.Recipient.Addr(),
-					"authorization_sent", authSent,
 					"hint", "Verify sip_username and sip_password in vault match the SIP provider's auth credentials")
 			} else {
 				s.logger.Warnw("Outbound call rejected by remote",

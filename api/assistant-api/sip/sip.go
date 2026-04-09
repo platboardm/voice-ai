@@ -56,7 +56,7 @@ type SIPEngine struct {
 	assistantConversationService internal_services.AssistantConversationService
 	assistantService             internal_services.AssistantService
 	deploymentService            internal_services.AssistantDeploymentService
-	vaultClient web_client.VaultClient
+	vaultClient                  web_client.VaultClient
 
 	// Registration client for maintaining SIP REGISTER with external providers.
 	registrationClient *sip_infra.RegistrationClient
@@ -80,7 +80,7 @@ func NewSIPEngine(config *config.AssistantConfig, logger commons.Logger,
 		assistantService:             internal_assistant_service.NewAssistantService(config, logger, postgres, opensearch),
 		deploymentService:            internal_assistant_service.NewAssistantDeploymentService(config, logger, postgres),
 		storage:                      storage_files.NewStorage(config.AssetStoreConfig, logger),
-		vaultClient: web_client.NewVaultClientGRPC(&config.AppConfig, logger, redis),
+		vaultClient:                  web_client.NewVaultClientGRPC(&config.AppConfig, logger, redis),
 	}
 }
 
@@ -110,7 +110,8 @@ func (m *SIPEngine) listenConfig() *sip_infra.ListenConfig {
 
 // Connect initializes the SIP server. The middleware chain resolves the
 // assistant from the DID in the To-URI:
-//   routingMiddleware (DID lookup) -> assistantMiddleware -> vaultConfigResolver
+//
+//	routingMiddleware (DID lookup) -> assistantMiddleware -> vaultConfigResolver
 func (m *SIPEngine) Connect(ctx context.Context) error {
 	m.ctx, m.cancel = context.WithCancel(ctx)
 
@@ -138,11 +139,6 @@ func (m *SIPEngine) Connect(ctx context.Context) error {
 	server.SetOnCancel(m.onCancel)
 	server.SetOnError(m.onError)
 
-	if err := server.Start(); err != nil {
-		return fmt.Errorf("failed to start SIP server: %w", err)
-	}
-	m.server = server
-
 	m.registrationClient = sip_infra.NewRegistrationClient(server.Client(), server.GetListenConfig(), m.logger)
 
 	m.dispatcher = sip_pipeline.NewDispatcher(&sip_pipeline.DispatcherConfig{
@@ -157,6 +153,12 @@ func (m *SIPEngine) Connect(ctx context.Context) error {
 		OnCreateObserver:     m.createObserver,
 	})
 	m.dispatcher.Start(m.ctx)
+
+	// Start server AFTER dispatcher is ready — incoming INVITEs call m.dispatcher.OnPipeline
+	if err := server.Start(); err != nil {
+		return fmt.Errorf("failed to start SIP server: %w", err)
+	}
+	m.server = server
 
 	go func() {
 		regCtx, cancel := context.WithTimeout(m.ctx, 60*time.Second)
@@ -365,7 +367,7 @@ func (m *SIPEngine) onError(session *sip_infra.Session, callErr error) {
 			reason = callErr.Error()
 		}
 		observer.EmitMetric(m.ctx, observe.CallStatusMetric("FAILED", reason))
-		observer.EmitEvent(m.ctx, observe.ComponentSIP, map[string]string{
+		observer.EmitEvent(m.ctx, observe.ComponentTelephony, map[string]string{
 			observe.DataType:   observe.EventCallEnded,
 			observe.DataReason: reason,
 		})
@@ -669,10 +671,9 @@ func (m *SIPEngine) UnregisterAssistant(ctx context.Context, did string) error {
 // For outbound calls, the conversation is already created by the channel pipeline.
 func (m *SIPEngine) pipelineCreateConversation(ctx context.Context, auth types.SimplePrinciple, assistantID uint64, fromURI string, direction string) (uint64, error) {
 	dirEnum := type_enums.DIRECTION_INBOUND
-	source := utils.SIP
+
 	if direction == "outbound" {
 		dirEnum = type_enums.DIRECTION_OUTBOUND
-		source = utils.PhoneCall
 	}
 
 	// Normalize SIP URI to phone number for caller identity
@@ -688,7 +689,7 @@ func (m *SIPEngine) pipelineCreateConversation(ctx context.Context, auth types.S
 	}
 
 	conversation, err := m.assistantConversationService.CreateConversation(
-		ctx, auth, callerNumber, assistant.Id, assistant.AssistantProviderId, dirEnum, source,
+		ctx, auth, callerNumber, assistant.Id, assistant.AssistantProviderId, dirEnum, utils.PhoneCall,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create conversation: %w", err)

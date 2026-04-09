@@ -145,11 +145,11 @@ func (d *InboundDispatcher) ResolveCallSessionByContext(ctx context.Context, con
 	return cc, vaultCred, nil
 }
 
-// CompleteCallSession marks a call context as completed. Should be called
-// when the call/session ends (talker exits).
+// CompleteCallSession marks a call context as claimed (call ended).
+// Called when the call/session ends (talker exits).
 func (d *InboundDispatcher) CompleteCallSession(ctx context.Context, contextID string) {
-	if err := d.store.Complete(ctx, contextID); err != nil {
-		d.logger.Warnf("failed to complete call context %s: %v", contextID, err)
+	if _, err := d.store.Claim(ctx, contextID); err != nil {
+		d.logger.Warnf("failed to claim call context %s: %v", contextID, err)
 	}
 }
 

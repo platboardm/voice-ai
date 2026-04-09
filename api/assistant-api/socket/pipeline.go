@@ -33,7 +33,7 @@ import (
 
 // newSessionPipeline creates a pipeline dispatcher wired for session handling
 // (resolve context, create streamer, create talker, run Talk, observe, complete).
-func newSessionPipeline(cfg *config.AssistantConfig, logger commons.Logger,
+func newSessionPipeline(ctx context.Context, cfg *config.AssistantConfig, logger commons.Logger,
 	postgres connectors.PostgresConnector,
 	redis connectors.RedisConnector,
 	opensearch connectors.OpenSearchConnector,
@@ -74,11 +74,13 @@ func newSessionPipeline(cfg *config.AssistantConfig, logger commons.Logger,
 		},
 		OnCreateObserver: newObserverFactory(cfg, logger, opensearch, conversationService),
 		OnCompleteSession: func(ctx context.Context, contextID string) {
-			store.Complete(ctx, contextID)
+			if _, err := store.Claim(ctx, contextID); err != nil {
+				logger.Warnf("failed to claim call context %s: %v", contextID, err)
+			}
 		},
 	})
 
-	d.Start(context.Background())
+	d.Start(ctx)
 	return d
 }
 

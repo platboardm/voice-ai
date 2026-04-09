@@ -74,8 +74,9 @@ func (d *Dispatcher) handleSessionEstablished(ctx context.Context, v sip_infra.S
 			types.NewMetadata("conversation.direction", string(v.Direction)),
 			types.NewMetadata("conversation.provider", "sip"),
 		})
-		observer.EmitEvent(ctx, obs.ComponentSIP, map[string]string{
+		observer.EmitEvent(ctx, obs.ComponentTelephony, map[string]string{
 			obs.DataType:      obs.EventCallStarted,
+			obs.DataProvider:  "sip",
 			obs.DataDirection: string(v.Direction),
 		})
 	}
@@ -92,7 +93,7 @@ func (d *Dispatcher) handleSessionEstablished(ctx context.Context, v sip_infra.S
 			}
 
 			if observer != nil {
-				observer.EmitEvent(ctx, obs.ComponentSIP, map[string]string{
+				observer.EmitEvent(ctx, obs.ComponentTelephony, map[string]string{
 					obs.DataType:   obs.EventCallEnded,
 					obs.DataReason: reason,
 				})

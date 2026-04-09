@@ -179,7 +179,9 @@ func newConversationApiCore(cfg *config.AssistantConfig, logger commons.Logger,
 			})
 		},
 		OnCompleteSession: func(ctx context.Context, contextID string) {
-			store.Complete(ctx, contextID)
+			if _, err := store.Claim(ctx, contextID); err != nil {
+				logger.Warnf("failed to claim call context %s: %v", contextID, err)
+			}
 		},
 	})
 

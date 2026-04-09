@@ -16,33 +16,84 @@ interface SourceIndicatorProps {
   withLabel?: boolean;
 }
 
-const sourceConfig: Record<string, { tagType: string; icon: React.ReactNode; label: string }> = {
+const sourceConfig: Record<
+  string,
+  { tagType: string; icon: React.ReactNode; label: string }
+> = {
   'phone-call': { tagType: 'green', icon: <Phone size={16} />, label: 'Phone' },
   sdk: { tagType: 'warm-gray', icon: <Code size={16} />, label: 'SDK' },
-  'web-plugin': { tagType: 'purple', icon: <Globe size={16} />, label: 'Web Plugin' },
-  debugger: { tagType: 'warm-gray', icon: <Debug size={16} />, label: 'Debugger' },
-  'rapida-app': { tagType: 'blue', icon: <Application size={16} />, label: 'Rapida App' },
+  'web-plugin': {
+    tagType: 'purple',
+    icon: <Globe size={16} />,
+    label: 'Web Plugin',
+  },
+  debugger: {
+    tagType: 'warm-gray',
+    icon: <Debug size={16} />,
+    label: 'Debugger',
+  },
+  'rapida-app': {
+    tagType: 'blue',
+    icon: <Application size={16} />,
+    label: 'Rapida App',
+  },
   'node-sdk': { tagType: 'green', icon: <Code size={16} />, label: 'Node SDK' },
   'go-sdk': { tagType: 'cyan', icon: <Code size={16} />, label: 'Go SDK' },
-  'typescript-sdk': { tagType: 'blue', icon: <Code size={16} />, label: 'TypeScript SDK' },
-  'java-sdk': { tagType: 'warm-gray', icon: <Code size={16} />, label: 'Java SDK' },
+  'typescript-sdk': {
+    tagType: 'blue',
+    icon: <Code size={16} />,
+    label: 'TypeScript SDK',
+  },
+  'java-sdk': {
+    tagType: 'warm-gray',
+    icon: <Code size={16} />,
+    label: 'Java SDK',
+  },
   'php-sdk': { tagType: 'purple', icon: <Code size={16} />, label: 'PHP SDK' },
-  'rust-sdk': { tagType: 'warm-gray', icon: <Code size={16} />, label: 'Rust SDK' },
-  'python-sdk': { tagType: 'warm-gray', icon: <LogoPython size={16} />, label: 'Python SDK' },
-  'react-sdk': { tagType: 'blue', icon: <LogoReact size={16} />, label: 'React SDK' },
-  'twilio-call': { tagType: 'green', icon: <Phone size={16} />, label: 'Phone' },
-  'exotel-call': { tagType: 'green', icon: <Phone size={16} />, label: 'Phone' },
-  'twilio-whatsapp': { tagType: 'teal', icon: <WhatsappIcon size={16} />, label: 'WhatsApp' },
+  'rust-sdk': {
+    tagType: 'warm-gray',
+    icon: <Code size={16} />,
+    label: 'Rust SDK',
+  },
+  'python-sdk': {
+    tagType: 'warm-gray',
+    icon: <LogoPython size={16} />,
+    label: 'Python SDK',
+  },
+  'react-sdk': {
+    tagType: 'blue',
+    icon: <LogoReact size={16} />,
+    label: 'React SDK',
+  },
+  'twilio-call': {
+    tagType: 'green',
+    icon: <Phone size={16} />,
+    label: 'Phone',
+  },
+  'exotel-call': {
+    tagType: 'green',
+    icon: <Phone size={16} />,
+    label: 'Phone',
+  },
+  'twilio-whatsapp': {
+    tagType: 'teal',
+    icon: <WhatsappIcon size={16} />,
+    label: 'WhatsApp',
+  },
 };
 
-const defaultConfig = { tagType: 'gray', icon: <Code size={16} />, label: 'Unknown' };
+const defaultConfig = {
+  tagType: 'gray',
+  icon: <Code size={16} />,
+  label: 'Unknown',
+};
 
 export const SourceIndicator: React.FC<SourceIndicatorProps> = ({
   source,
   withLabel = true,
 }) => {
   const config = sourceConfig[source] || defaultConfig;
-
+  console.log('SourceIndicator config:', { source, config });
   if (!withLabel) {
     return (
       <Tooltip label={config.label} align="bottom">

@@ -24,11 +24,14 @@ import (
 )
 
 type audioSocketEngine struct {
-	logger   commons.Logger
-	cfg      *config.AssistantConfig
-	listener net.Listener
-	pipeline *channel_pipeline.Dispatcher
-	mu       sync.RWMutex
+	logger     commons.Logger
+	cfg        *config.AssistantConfig
+	postgres   connectors.PostgresConnector
+	redis      connectors.RedisConnector
+	opensearch connectors.OpenSearchConnector
+	listener   net.Listener
+	pipeline   *channel_pipeline.Dispatcher
+	mu         sync.RWMutex
 }
 
 func NewAudioSocketEngine(cfg *config.AssistantConfig, logger commons.Logger,
@@ -37,13 +40,17 @@ func NewAudioSocketEngine(cfg *config.AssistantConfig, logger commons.Logger,
 	opensearch connectors.OpenSearchConnector,
 ) *audioSocketEngine {
 	return &audioSocketEngine{
-		cfg:      cfg,
-		logger:   logger,
-		pipeline: newSessionPipeline(cfg, logger, postgres, redis, opensearch),
+		cfg:        cfg,
+		logger:     logger,
+		postgres:   postgres,
+		redis:      redis,
+		opensearch: opensearch,
 	}
 }
 
 func (m *audioSocketEngine) Connect(ctx context.Context) error {
+	m.pipeline = newSessionPipeline(ctx, m.cfg, m.logger, m.postgres, m.redis, m.opensearch)
+
 	addr := fmt.Sprintf("%s:%d", m.cfg.AudioSocketConfig.Host, m.cfg.AudioSocketConfig.Port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
