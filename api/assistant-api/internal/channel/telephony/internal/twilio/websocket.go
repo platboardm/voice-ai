@@ -9,6 +9,8 @@ package internal_twilio_telephony
 import (
 	"bytes"
 	"encoding/json"
+	"sync"
+	"sync/atomic"
 
 	"github.com/gorilla/websocket"
 	internal_audio "github.com/rapidaai/api/assistant-api/internal/audio"
@@ -32,6 +34,8 @@ type twilioWebsocketStreamer struct {
 
 	streamID   string
 	connection *websocket.Conn
+	writeMu    sync.Mutex
+	closed     atomic.Bool
 }
 
 func NewTwilioWebsocketStreamer(logger commons.Logger, connection *websocket.Conn, cc *callcontext.CallContext, vaultCred *protos.VaultCredential) internal_type.Streamer {
@@ -183,9 +187,15 @@ func (tws *twilioWebsocketStreamer) GetConversationUuid() string {
 }
 
 func (tws *twilioWebsocketStreamer) Cancel() error {
-	if tws.connection != nil {
-		tws.connection.Close()
-		tws.connection = nil
+	if !tws.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+	tws.writeMu.Lock()
+	conn := tws.connection
+	tws.connection = nil
+	tws.writeMu.Unlock()
+	if conn != nil {
+		conn.Close()
 	}
 	tws.BaseStreamer.Cancel()
 	return nil
@@ -231,6 +241,11 @@ func (tws *twilioWebsocketStreamer) sendTwilioMessage(
 		return tws.handleError("Failed to marshal Twilio message", err)
 	}
 
+	tws.writeMu.Lock()
+	defer tws.writeMu.Unlock()
+	if tws.connection == nil {
+		return nil
+	}
 	if err := tws.connection.WriteMessage(websocket.TextMessage, twilioMessageJSON); err != nil {
 		return tws.handleError("Failed to send message to Twilio", err)
 	}

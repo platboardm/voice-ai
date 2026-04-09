@@ -9,6 +9,8 @@ package internal_exotel_telephony
 import (
 	"bytes"
 	"encoding/json"
+	"sync"
+	"sync/atomic"
 
 	"github.com/gorilla/websocket"
 	internal_audio "github.com/rapidaai/api/assistant-api/internal/audio"
@@ -27,6 +29,8 @@ type exotelWebsocketStreamer struct {
 	internal_telephony_base.BaseTelephonyStreamer
 
 	connection *websocket.Conn
+	writeMu    sync.Mutex
+	closed     atomic.Bool
 	streamID   string
 }
 
@@ -177,7 +181,7 @@ func (exotel *exotelWebsocketStreamer) handleMediaEvent(mediaEvent internal_exot
 }
 
 func (exotel *exotelWebsocketStreamer) sendExotelMessage(eventType string, mediaData map[string]interface{}) error {
-	if exotel.connection == nil || exotel.streamID == "" {
+	if exotel.streamID == "" {
 		return nil
 	}
 	message := map[string]interface{}{
@@ -191,6 +195,11 @@ func (exotel *exotelWebsocketStreamer) sendExotelMessage(eventType string, media
 	if err != nil {
 		return exotel.handleError("Failed to marshal Exotel message", err)
 	}
+	exotel.writeMu.Lock()
+	defer exotel.writeMu.Unlock()
+	if exotel.connection == nil {
+		return nil
+	}
 	if err := exotel.connection.WriteMessage(websocket.TextMessage, exotelMessageJSON); err != nil {
 		return exotel.handleError("Failed to send message to Exotel", err)
 	}
@@ -203,9 +212,15 @@ func (exotel *exotelWebsocketStreamer) handleError(message string, err error) er
 }
 
 func (exotel *exotelWebsocketStreamer) Cancel() error {
-	if exotel.connection != nil {
-		exotel.connection.Close()
-		exotel.connection = nil
+	if !exotel.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+	exotel.writeMu.Lock()
+	conn := exotel.connection
+	exotel.connection = nil
+	exotel.writeMu.Unlock()
+	if conn != nil {
+		conn.Close()
 	}
 	exotel.BaseStreamer.Cancel()
 	return nil

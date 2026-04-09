@@ -1,9 +1,10 @@
-import { Dropdown } from '@/app/components/dropdown';
 import {
   PrimaryButton,
   GhostButton,
   IconOnlyButton,
 } from '@/app/components/carbon/button';
+import { Dropdown } from '@/app/components/carbon/dropdown';
+import { Form, Stack, TextInput } from '@/app/components/carbon/form';
 import { PhoneOutgoing, ArrowLeft } from '@carbon/icons-react';
 import { Notification } from '@/app/components/carbon/notification';
 import { Tabs } from '@/app/components/carbon/tabs';
@@ -45,7 +46,7 @@ import {
   GetAssistantRequest,
   Variable,
 } from '@rapidaai/react';
-import React, { ChangeEvent, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 
 /**
@@ -122,6 +123,7 @@ export const PreviewVoiceAgent = () => {
 type PhoneCallStatus = 'idle' | 'calling' | 'success' | 'failed';
 type PhoneDebugTab = 'configuration' | 'arguments';
 const PHONE_DEBUG_TABS: PhoneDebugTab[] = ['configuration', 'arguments'];
+const PHONE_DEBUG_TAB_LABELS = ['Configuration', 'Arguments'];
 
 //
 export const PreviewPhoneAgent = () => {
@@ -144,18 +146,6 @@ export const PreviewPhoneAgent = () => {
   const [argumentMap, setArgumentMap] = useState<Map<string, string>>(
     new Map(),
   );
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const filteredCountries = useMemo(() => {
-    if (!searchQuery) return PHONE_COUNTRIES;
-    const q = searchQuery.toLowerCase();
-    return PHONE_COUNTRIES.filter(
-      c =>
-        c.name.toLowerCase().includes(q) ||
-        c.value.includes(q) ||
-        c.code.toLowerCase().includes(q),
-    );
-  }, [searchQuery]);
 
   useEffect(() => {
     if (!assistantId) return;
@@ -263,9 +253,9 @@ export const PreviewPhoneAgent = () => {
   const model = assistant?.getAssistantprovidermodel() ?? null;
 
   return (
-    <div className="h-dvh flex p-8 text-sm/6 w-full gap-3 md:gap-6">
+    <div className="h-screen w-full flex flex-col lg:flex-row text-sm/6">
       {/* ── Left: phone call form ───────────────────────────────────── */}
-      <div className="flex flex-col overflow-hidden h-full w-2/3 border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-950">
+      <div className="flex flex-col overflow-hidden h-full w-full lg:w-2/3 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950">
         {/* Header */}
         <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-200 dark:border-gray-800 shrink-0">
           <IconOnlyButton
@@ -283,107 +273,104 @@ export const PreviewPhoneAgent = () => {
         </div>
 
         {/* Body */}
-        <div className="flex-1 flex flex-col items-center justify-center px-8">
-          <div className="w-full max-w-lg space-y-6">
-            <div className="space-y-1">
-              <Text
-                as="h2"
-                isLoading={!assistant}
-                heading
-                skeletonWidth="60%"
-                className="text-xl font-semibold text-gray-900 dark:text-gray-100"
-              >
-                Make a Phone Call
-              </Text>
-              <Text
-                as="p"
-                isLoading={!assistant}
-                skeletonWidth="80%"
-                className="text-gray-500 dark:text-gray-400"
-              >
-                Enter a phone number to start a call with your assistant.
-              </Text>
-            </div>
-
-            <div className="flex items-stretch h-10 border border-gray-300 dark:border-gray-700 focus-within:border-blue-600 dark:focus-within:border-blue-600 transition-colors">
-              <div className="w-52 shrink-0 border-r border-gray-300 dark:border-gray-700">
-                <Dropdown
-                  className="h-full bg-white dark:bg-gray-950 border-none! outline-hidden! focus-within:border-none! focus-within:outline-hidden! [&_input]:h-full [&>div]:h-full"
-                  currentValue={country}
-                  setValue={v => setCountry(v)}
-                  allValue={filteredCountries}
-                  placeholder="Select country"
-                  searchable
-                  onSearching={(e: ChangeEvent<HTMLInputElement>) =>
-                    setSearchQuery(e.target.value)
-                  }
-                  option={c => (
-                    <span className="inline-flex items-center gap-2 max-w-full text-sm font-medium">
-                      <span className="truncate capitalize">
-                        {c.name} ({c.value})
-                      </span>
-                    </span>
-                  )}
-                  label={c => (
-                    <span className="inline-flex items-center gap-2 max-w-full text-sm font-medium">
-                      <span className="truncate capitalize">
-                        {c.name} ({c.value})
-                      </span>
-                    </span>
-                  )}
-                />
+        <div className="flex-1 flex flex-col items-center justify-center px-5 md:px-8">
+          <Form className="w-full max-w-[42rem]" onSubmit={e => e.preventDefault()}>
+            <Stack gap={7}>
+              <div className="space-y-1">
+                <Text
+                  as="h2"
+                  isLoading={!assistant}
+                  heading
+                  skeletonWidth="60%"
+                  className="text-xl font-semibold text-gray-900 dark:text-gray-100"
+                >
+                  Debug Phone Call
+                </Text>
+                <Text
+                  as="p"
+                  isLoading={!assistant}
+                  skeletonWidth="80%"
+                  className="text-gray-500 dark:text-gray-400"
+                >
+                  Place a live test call to validate your phone deployment end-to-end.
+                </Text>
               </div>
-              <input
-                type="tel"
-                placeholder="Enter your phone number"
-                className="flex-1 h-full px-4 text-sm bg-transparent outline-none text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
-                value={phoneNumber}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                  setPhoneNumber(e.target.value);
-                  setErrorMessage('');
-                }}
-              />
-            </div>
 
-            {errorMessage && (
-              <Notification
-                kind="error"
-                title="Error"
-                subtitle={errorMessage}
-              />
-            )}
+              <div>
+                <Text as="label" className="block mb-2 text-sm font-medium">
+                  Phone number
+                </Text>
+                <div className="grid grid-cols-[16rem_minmax(0,1fr)] gap-3">
+                  <Dropdown<Country>
+                    id="phone-country"
+                    titleText=""
+                    label="Select country code"
+                    items={PHONE_COUNTRIES}
+                    selectedItem={country}
+                    onChange={({ selectedItem }) =>
+                      setCountry(selectedItem ?? DEFAULT_COUNTRY)
+                    }
+                    itemToString={item =>
+                      item ? `${item.name} (${item.value})` : ''
+                    }
+                    hideLabel
+                  />
+                  <TextInput
+                    id="phone-number"
+                    labelText="Phone number"
+                    hideLabel
+                    type="tel"
+                    placeholder="Enter your phone number"
+                    value={phoneNumber}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      setPhoneNumber(e.target.value);
+                      setErrorMessage('');
+                    }}
+                    invalid={Boolean(errorMessage)}
+                  />
+                </div>
+              </div>
 
-            {callStatus === 'success' && (
-              <Notification
-                kind="success"
-                title="Success"
-                subtitle="Call has been created successfully."
-              />
-            )}
-
-            <div className="flex items-center justify-between">
-              {callStatus === 'success' ? (
-                <GhostButton size="sm" onClick={handleReset}>
-                  Make another call
-                </GhostButton>
-              ) : (
-                <span />
+              {errorMessage && (
+                <Notification
+                  kind="error"
+                  title="Error"
+                  subtitle={errorMessage}
+                />
               )}
-              <PrimaryButton
-                size="md"
-                renderIcon={PhoneOutgoing}
-                onClick={handleSubmit}
-                isLoading={callStatus === 'calling'}
-              >
-                Start Call
-              </PrimaryButton>
-            </div>
-          </div>
+
+              {callStatus === 'success' && (
+                <Notification
+                  kind="success"
+                  title="Success"
+                  subtitle="Call has been created successfully."
+                />
+              )}
+
+              <div className="flex items-center justify-between">
+                {callStatus === 'success' ? (
+                  <GhostButton size="sm" onClick={handleReset}>
+                    Make another call
+                  </GhostButton>
+                ) : (
+                  <span />
+                )}
+                <PrimaryButton
+                  size="md"
+                  renderIcon={PhoneOutgoing}
+                  onClick={handleSubmit}
+                  isLoading={callStatus === 'calling'}
+                >
+                  Start Call
+                </PrimaryButton>
+              </div>
+            </Stack>
+          </Form>
         </div>
       </div>
 
       {/* ── Right: debugger panel ───────────────────────────────────── */}
-      <div className="shrink-0 flex flex-col overflow-hidden border border-gray-200 dark:border-gray-700 w-1/3 rounded bg-white dark:bg-gray-950">
+      <div className="shrink-0 flex flex-col overflow-hidden border-t lg:border-t-0 border-gray-200 dark:border-gray-800 w-full lg:w-1/3 bg-white dark:bg-gray-950">
         <PhoneAgentDebugger
           assistant={assistant}
           deployment={deployment ? deployment : undefined}
@@ -425,14 +412,16 @@ const PhoneAgentDebugger: React.FC<{
   return (
     <div className="flex flex-col h-full overflow-hidden text-sm">
       {/* Tab bar */}
-      <Tabs
-        tabs={PHONE_DEBUG_TABS}
-        selectedIndex={PHONE_DEBUG_TABS.indexOf(tab)}
-        onChange={idx => setTab(PHONE_DEBUG_TABS[idx])}
-        contained
-        aria-label="Phone debugger tabs"
-        isLoading={loading}
-      />
+      <div className="border-b border-gray-200 dark:border-gray-800">
+        <Tabs
+          tabs={PHONE_DEBUG_TAB_LABELS}
+          selectedIndex={PHONE_DEBUG_TABS.indexOf(tab)}
+          onChange={idx => setTab(PHONE_DEBUG_TABS[idx])}
+          contained
+          aria-label="Phone debugger tabs"
+          isLoading={loading}
+        />
+      </div>
 
       {/* ── configuration tab ── */}
       {tab === 'configuration' && (
@@ -528,7 +517,7 @@ const PhoneAgentDebugger: React.FC<{
       {tab === 'arguments' && (
         <div className="flex-1 min-h-0 overflow-y-auto">
           {variables.length > 0 ? (
-            <div className="[&_label]:!text-sm [&_label]:!leading-6 [&_label]:!py-2 [&_label]:!px-3 [&_textarea]:!text-sm [&_textarea]:!leading-6 [&_textarea]:!px-3 [&_textarea]:!py-2">
+            <div className="divide-y border-b">
               {variables.map((x, idx) => (
                 <InputVarForm key={idx} var={x}>
                   {(x.getType() === InputVarType.stringInput ||

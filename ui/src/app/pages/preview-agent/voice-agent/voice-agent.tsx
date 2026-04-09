@@ -31,11 +31,6 @@ import { Activity, FilterRemove } from '@carbon/icons-react';
 import {
   DismissibleTag,
   Tag,
-  StructuredListWrapper,
-  StructuredListBody,
-  StructuredListRow,
-  StructuredListCell,
-  StructuredListSkeleton,
 } from '@carbon/react';
 import { Tabs } from '@/app/components/carbon/tabs';
 import { Text } from '@/app/components/carbon/text';
@@ -395,17 +390,19 @@ export const VoiceAgent: FC<{
             />
           )}
           {/* Tab bar */}
-          <Tabs
-            tabs={[
-              'Messages',
-              events.length > 0 ? `Events (${events.length})` : 'Events',
-            ]}
-            selectedIndex={msgTab === 'messages' ? 0 : 1}
-            onChange={idx => setMsgTab(idx === 0 ? 'messages' : 'events')}
-            contained
-            isLoading={!assistant}
-            aria-label="Message tabs"
-          />
+          <div className="border-b border-gray-200 dark:border-gray-800">
+            <Tabs
+              tabs={[
+                'Messages',
+                events.length > 0 ? `Events (${events.length})` : 'Events',
+              ]}
+              selectedIndex={msgTab === 'messages' ? 0 : 1}
+              onChange={idx => setMsgTab(idx === 0 ? 'messages' : 'events')}
+              contained
+              isLoading={!assistant}
+              aria-label="Message tabs"
+            />
+          </div>
         </div>
 
         {/* Messages tab */}
@@ -557,14 +554,16 @@ export const VoiceAgentDebugger: FC<{
   return (
     <div className="flex flex-col h-full overflow-hidden text-sm">
       {/* Tab bar */}
-      <Tabs
-        tabs={['Configuration', 'Arguments', 'Metrics']}
-        selectedIndex={RIGHT_TABS.indexOf(tab)}
-        onChange={idx => setTab(RIGHT_TABS[idx])}
-        contained
-        aria-label="Debugger tabs"
-        isLoading={!assistant}
-      />
+      <div className="border-b border-gray-200 dark:border-gray-800">
+        <Tabs
+          tabs={['Configuration', 'Arguments', 'Metrics']}
+          selectedIndex={RIGHT_TABS.indexOf(tab)}
+          onChange={idx => setTab(RIGHT_TABS[idx])}
+          contained
+          aria-label="Debugger tabs"
+          isLoading={!assistant}
+        />
+      </div>
 
       {/* ── arguments tab ── */}
       {tab === 'arguments' && (
@@ -775,32 +774,50 @@ export const ConfigBlock: FC<{
   isLoading?: boolean;
   skeletonRows?: number;
 }> = ({ title, children, isLoading = false, skeletonRows = 3 }) => (
-  <div className="border-b border-gray-200 dark:border-gray-700">
-    <div className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+  <section className="border-b border-gray-200/90 dark:border-gray-800">
+    <div className="px-4 pt-3 pb-2 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
       {title}
     </div>
     {isLoading ? (
-      <StructuredListSkeleton rowCount={skeletonRows} />
+      <ConfigRowsSkeleton rowCount={skeletonRows} />
     ) : (
-      <StructuredListWrapper isCondensed className="!mb-0">
-        <StructuredListBody>{children}</StructuredListBody>
-      </StructuredListWrapper>
+      <div className="px-4 pb-1">{children}</div>
     )}
-  </div>
+  </section>
 );
 
 export const InfoRow: FC<{ label: string; value: string }> = ({
   label,
   value,
 }) => (
-  <StructuredListRow>
-    <StructuredListCell className="!text-sm text-gray-500 dark:text-gray-400 lowercase tracking-wide">
+  <div className="grid grid-cols-[12rem_minmax(0,1fr)] gap-x-4 border-t border-gray-100/80 dark:border-gray-900/80 py-2.5 first:border-t-0">
+    <span
+      className="text-sm text-gray-500 dark:text-gray-400 lowercase tracking-wide truncate"
+      title={label}
+    >
       {label}
-    </StructuredListCell>
-    <StructuredListCell className="!text-sm font-medium text-gray-900 dark:text-gray-100 text-right truncate">
+    </span>
+    <span
+      className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right whitespace-normal break-words"
+      title={value}
+    >
       {value}
-    </StructuredListCell>
-  </StructuredListRow>
+    </span>
+  </div>
+);
+
+const ConfigRowsSkeleton: FC<{ rowCount: number }> = ({ rowCount }) => (
+  <div className="px-4 pb-2 animate-pulse">
+    {Array.from({ length: rowCount }).map((_, idx) => (
+      <div
+        key={idx}
+        className="grid grid-cols-[12rem_minmax(0,1fr)] gap-x-4 border-t border-gray-100/80 dark:border-gray-900/80 py-2.5 first:border-t-0"
+      >
+        <div className="h-4 w-24 rounded bg-gray-200 dark:bg-gray-800" />
+        <div className="ml-auto h-4 w-36 rounded bg-gray-200 dark:bg-gray-800" />
+      </div>
+    ))}
+  </div>
 );
 
 export const MetricCard: FC<{ label: string; value: string }> = ({

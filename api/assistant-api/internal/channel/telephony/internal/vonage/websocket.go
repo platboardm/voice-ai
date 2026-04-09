@@ -9,6 +9,8 @@ package internal_vonage_telephony
 import (
 	"bytes"
 	"encoding/json"
+	"sync"
+	"sync/atomic"
 
 	"github.com/gorilla/websocket"
 	callcontext "github.com/rapidaai/api/assistant-api/internal/callcontext"
@@ -24,6 +26,8 @@ type vonageWebsocketStreamer struct {
 	internal_telephony_base.BaseTelephonyStreamer
 
 	connection *websocket.Conn
+	writeMu    sync.Mutex
+	closed     atomic.Bool
 }
 
 // NewVonageWebsocketStreamer creates a Vonage WebSocket streamer.
@@ -98,6 +102,11 @@ func (vng *vonageWebsocketStreamer) Send(response internal_type.Stream) error {
 			var sendErr error
 			vng.WithOutputBuffer(func(buf *bytes.Buffer) {
 				buf.Write(audioData)
+				vng.writeMu.Lock()
+				defer vng.writeMu.Unlock()
+				if vng.connection == nil {
+					return
+				}
 				for buf.Len() >= vng.OutputFrameSize() {
 					chunk := buf.Next(vng.OutputFrameSize())
 					if err := vng.connection.WriteMessage(websocket.BinaryMessage, chunk); err != nil {
@@ -121,9 +130,13 @@ func (vng *vonageWebsocketStreamer) Send(response internal_type.Stream) error {
 	case *protos.ConversationInterruption:
 		if data.Type == protos.ConversationInterruption_INTERRUPTION_TYPE_WORD {
 			vng.ResetOutputBuffer()
-			if err := vng.connection.WriteMessage(websocket.TextMessage, []byte(`{"action":"clear"}`)); err != nil {
-				vng.Logger.Errorf("Error sending clear command:", err)
+			vng.writeMu.Lock()
+			if vng.connection != nil {
+				if err := vng.connection.WriteMessage(websocket.TextMessage, []byte(`{"action":"clear"}`)); err != nil {
+					vng.Logger.Errorf("Error sending clear command:", err)
+				}
 			}
+			vng.writeMu.Unlock()
 		}
 	case *protos.ConversationDirective:
 		if data.GetType() == protos.ConversationDirective_END_CONVERSATION {
@@ -170,9 +183,15 @@ func (vng *vonageWebsocketStreamer) GetConversationUuid() string {
 }
 
 func (vng *vonageWebsocketStreamer) Cancel() error {
-	if vng.connection != nil {
-		vng.connection.Close()
-		vng.connection = nil
+	if !vng.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+	vng.writeMu.Lock()
+	conn := vng.connection
+	vng.connection = nil
+	vng.writeMu.Unlock()
+	if conn != nil {
+		conn.Close()
 	}
 	vng.BaseStreamer.Cancel()
 	return nil

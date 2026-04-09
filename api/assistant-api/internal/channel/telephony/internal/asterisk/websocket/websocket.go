@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -30,6 +31,8 @@ type asteriskWebsocketStreamer struct {
 
 	audioProcessor *internal_asterisk.AudioProcessor
 	connection     *websocket.Conn
+	writeMu        sync.Mutex // guards all writes to connection (gorilla WS is not concurrent-write safe)
+	closed         atomic.Bool
 	channelName    string
 
 	outputSenderStarted bool
@@ -83,6 +86,8 @@ func (aws *asteriskWebsocketStreamer) sendAudioChunk(chunk *internal_asterisk.Au
 	if aws.connection == nil {
 		return nil
 	}
+	aws.writeMu.Lock()
+	defer aws.writeMu.Unlock()
 	return aws.connection.WriteMessage(websocket.BinaryMessage, chunk.Data)
 }
 
@@ -245,6 +250,8 @@ func (aws *asteriskWebsocketStreamer) sendCommand(command string) error {
 	if aws.connection == nil {
 		return nil
 	}
+	aws.writeMu.Lock()
+	defer aws.writeMu.Unlock()
 	return aws.connection.WriteMessage(websocket.TextMessage, []byte(command))
 }
 
@@ -296,9 +303,16 @@ func (aws *asteriskWebsocketStreamer) hangupViaARI() error {
 }
 
 func (aws *asteriskWebsocketStreamer) Cancel() error {
-	if aws.connection != nil {
-		aws.connection.Close()
-		aws.connection = nil
+	if !aws.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+	aws.stopAudioProcessing()
+	aws.writeMu.Lock()
+	conn := aws.connection
+	aws.connection = nil
+	aws.writeMu.Unlock()
+	if conn != nil {
+		conn.Close()
 	}
 	aws.BaseStreamer.Cancel()
 	return nil

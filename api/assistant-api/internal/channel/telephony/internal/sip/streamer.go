@@ -36,18 +36,15 @@ type Streamer struct {
 	mu     sync.RWMutex
 	closed atomic.Bool
 
-	config     *sip_infra.Config
 	session    *sip_infra.Session
 	rtpHandler *sip_infra.RTPHandler
 
-	codec *sip_infra.Codec
 	ctx   context.Context
 	cancel context.CancelFunc
 }
 
 // NewStreamer creates a SIP streamer that reuses an existing session's RTP handler.
 func NewStreamer(ctx context.Context,
-	config *sip_infra.Config,
 	logger commons.Logger,
 	sipSession *sip_infra.Session,
 	cc *callcontext.CallContext,
@@ -58,18 +55,11 @@ func NewStreamer(ctx context.Context,
 	}
 	streamerCtx, cancel := context.WithCancel(ctx)
 
-	// Default codec — overridden below when an existing session carries a
-	// negotiated codec.
-	pcmu := sip_infra.CodecPCMU
-	codec := &pcmu
-
 	s := &Streamer{
 		BaseTelephonyStreamer: internal_telephony_base.NewBaseTelephonyStreamer(
 			logger, cc, vaultCred,
 			internal_telephony_base.WithSourceAudioConfig(internal_audio.NewMulaw8khzMonoAudioConfig()),
 		),
-		config: config,
-		codec:  codec,
 		ctx:    streamerCtx,
 		cancel: cancel,
 	}
@@ -86,10 +76,6 @@ func NewStreamer(ctx context.Context,
 		return nil, sip_infra.NewSIPError("NewStreamer", sipSession.GetCallID(), "session has no RTP handler", sip_infra.ErrRTPNotInitialized)
 	}
 
-	if negotiated := sipSession.GetNegotiatedCodec(); negotiated != nil {
-		s.codec = negotiated
-	}
-
 	s.session = sipSession
 	s.rtpHandler = rtpHandler
 
@@ -98,9 +84,13 @@ func NewStreamer(ctx context.Context,
 	s.PushInput(s.CreateConnectionRequest())
 
 	localIP, localPort := rtpHandler.LocalAddr()
+	codecName := "PCMU"
+	if negotiated := sipSession.GetNegotiatedCodec(); negotiated != nil {
+		codecName = negotiated.Name
+	}
 	logger.Infow("SIP streamer created",
 		"call_id", sipSession.GetCallID(),
-		"codec", s.codec.Name,
+		"codec", codecName,
 		"rtp_port", localPort,
 		"local_ip", localIP)
 

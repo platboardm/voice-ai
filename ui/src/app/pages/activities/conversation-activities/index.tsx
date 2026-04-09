@@ -373,7 +373,7 @@ export const ListingPage: FC<{}> = () => {
                     </TableCell>
                   )}
                   {conversationLogAction.visibleColumn('created_date') && (
-                    <TableCell className="!font-mono !text-xs whitespace-nowrap">
+                    <TableCell className="!text-xs whitespace-nowrap">
                       {row.getCreateddate() &&
                         toHumanReadableDateTime(row.getCreateddate()!)}
                     </TableCell>

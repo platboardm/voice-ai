@@ -97,7 +97,7 @@ type TelephonyDispatcherDeps struct {
 // streamer. Callers populate only the fields relevant to their transport:
 //
 //   - WebSocket providers (Twilio, Exotel, Vonage, Asterisk WS): set WebSocketConn
-//   - AudioSocket (Asterisk): set AudioSocketConn, AudioSocketReader, AudioSocketWriter, InitialUUID
+//   - AudioSocket (Asterisk): set AudioSocketConn, AudioSocketReader, AudioSocketWriter
 //   - SIP: set Ctx, SIPSession, SIPConfig
 type StreamerOption struct {
 	// WebSocket transport
@@ -136,7 +136,7 @@ func (at Telephony) NewStreamer(
 		}
 		return internal_asterisk_websocket.NewAsteriskWebsocketStreamer(logger, opt.WebSocketConn, cc, vaultCred)
 	case SIP:
-		return internal_sip_telephony.NewStreamer(opt.Ctx, opt.SIPConfig, logger, opt.SIPSession, cc, vaultCred)
+		return internal_sip_telephony.NewStreamer(opt.Ctx, logger, opt.SIPSession, cc, vaultCred)
 	default:
 		return nil, fmt.Errorf("streamer not supported for provider %q", at)
 	}

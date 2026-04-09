@@ -57,6 +57,9 @@ type webrtcStreamer struct {
 
 	currentMode protos.StreamMode
 
+	// closed guards Close() for idempotency across concurrent goroutines.
+	closed atomic.Bool
+
 	// peerConnected is set to true when the WebRTC peer connection reaches
 	// Connected state. runOutputWriter gates audio writes on this flag
 	// to prevent WriteSample from silently dropping frames before the
@@ -821,6 +824,9 @@ func (s *webrtcStreamer) watchCallerContext(callerCtx context.Context) {
 
 // Close is idempotent — safe to call from multiple goroutines.
 func (s *webrtcStreamer) Close() error {
+	if !s.closed.CompareAndSwap(false, true) {
+		return nil
+	}
 	s.PushDisconnection(protos.ConversationDisconnection_DISCONNECTION_TYPE_USER)
 	s.stopAudioProcessing()
 

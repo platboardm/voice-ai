@@ -14,6 +14,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	internal_audio "github.com/rapidaai/api/assistant-api/internal/audio"
 	callcontext "github.com/rapidaai/api/assistant-api/internal/callcontext"
@@ -34,6 +35,7 @@ type Streamer struct {
 	writer         *bufio.Writer
 	writeMu        sync.Mutex
 	audioProcessor *internal_asterisk.AudioProcessor
+	closed         atomic.Bool
 
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -160,8 +162,10 @@ func (as *Streamer) runFrameReader() {
 		}
 		switch frame.Type {
 		case FrameTypeUUID:
-			as.initialUUID = strings.TrimSpace(string(frame.Payload))
-			as.PushInput(as.CreateConnectionRequest())
+			if as.initialUUID == "" {
+				as.initialUUID = strings.TrimSpace(string(frame.Payload))
+				as.PushInput(as.CreateConnectionRequest())
+			}
 		case FrameTypeAudio:
 			if err := as.audioProcessor.ProcessInputAudio(frame.Payload); err != nil {
 				as.Logger.Debug("Failed to process input audio", "error", err.Error())
@@ -170,9 +174,7 @@ func (as *Streamer) runFrameReader() {
 			var audioRequest *protos.ConversationUserMessage
 			as.WithInputBuffer(func(buf *bytes.Buffer) {
 				if buf.Len() > 0 {
-					audioRequest = &protos.ConversationUserMessage{
-						Message: &protos.ConversationUserMessage_Audio{Audio: buf.Bytes()},
-					}
+					audioRequest = as.CreateVoiceRequest(buf.Bytes())
 					buf.Reset()
 				}
 			})
@@ -217,6 +219,9 @@ func (as *Streamer) Send(response internal_type.Stream) error {
 }
 
 func (as *Streamer) close() error {
+	if !as.closed.CompareAndSwap(false, true) {
+		return nil
+	}
 	if as.outputCancel != nil {
 		as.outputCancel()
 	}

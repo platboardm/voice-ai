@@ -24,7 +24,10 @@ export interface CarbonTabsProps {
   contained?: boolean;
   /** Accessible label for the tab list. */
   'aria-label'?: string;
+  /** Class applied to the Carbon Tabs root container. */
   className?: string;
+  /** Class applied to each Carbon TabPanel. */
+  panelClassName?: string;
   /** Show TabsSkeleton instead of the real tabs + content. */
   isLoading?: boolean;
 }
@@ -38,6 +41,7 @@ export const Tabs: FC<CarbonTabsProps> = ({
   contained = false,
   'aria-label': ariaLabel = 'Tabs',
   className,
+  panelClassName,
   isLoading = false,
 }) => {
   if (isLoading) {
@@ -52,6 +56,7 @@ export const Tabs: FC<CarbonTabsProps> = ({
 
   return (
     <CarbonTabs
+      className={cn(className)}
       selectedIndex={selectedIndex}
       onChange={({ selectedIndex: idx }) => onChange?.(idx)}
     >
@@ -62,7 +67,7 @@ export const Tabs: FC<CarbonTabsProps> = ({
       </CarbonTabList>
       <CarbonTabPanels>
         {panels.map((panel, idx) => (
-          <CarbonTabPanel key={idx} className={cn(className)}>
+          <CarbonTabPanel key={idx} className={cn(panelClassName)}>
             {panel}
           </CarbonTabPanel>
         ))}
