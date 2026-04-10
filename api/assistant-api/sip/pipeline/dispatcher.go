@@ -99,10 +99,10 @@ func NewDispatcher(cfg *DispatcherConfig) *Dispatcher {
 		onCallEnd:            cfg.OnCallEnd,
 		onCreateObserver:     cfg.OnCreateObserver,
 		onCreateHooks:        cfg.OnCreateHooks,
-		signalCh:           make(chan callEnvelope, signalChSize),
-		setupCh:            make(chan callEnvelope, setupChSize),
-		mediaCh:            make(chan callEnvelope, mediaChSize),
-		controlCh:          make(chan callEnvelope, controlChSize),
+		signalCh:             make(chan callEnvelope, signalChSize),
+		setupCh:              make(chan callEnvelope, setupChSize),
+		mediaCh:              make(chan callEnvelope, mediaChSize),
+		controlCh:            make(chan callEnvelope, controlChSize),
 	}
 }
 

@@ -62,15 +62,17 @@ func TestHandleSessionEstablished_SetupErrorEndsSession(t *testing.T) {
 		OnCallSetup: func(ctx context.Context, session *sip_infra.Session, auth types.SimplePrinciple, assistantID uint64, conversationID uint64) (*CallSetupResult, error) {
 			return nil, fmt.Errorf("setup failed")
 		},
-		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error { return nil },
+		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
+			return nil
+		},
 	})
 
 	s := newPipelineTestSession(t)
 	d.handleSessionEstablished(context.Background(), sip_infra.SessionEstablishedPipeline{
-		ID:          "call-setup-fail",
-		Session:     s,
-		Direction:   sip_infra.CallDirectionInbound,
-		AssistantID: 1,
+		ID:             "call-setup-fail",
+		Session:        s,
+		Direction:      sip_infra.CallDirectionInbound,
+		AssistantID:    1,
 		ConversationID: 42,
 	})
 
@@ -102,10 +104,10 @@ func TestHandleSessionEstablished_PanicStillCallsOnCallEnd(t *testing.T) {
 
 	s := newPipelineTestSession(t)
 	d.handleSessionEstablished(context.Background(), sip_infra.SessionEstablishedPipeline{
-		ID:          "call-panic",
-		Session:     s,
-		Direction:   sip_infra.CallDirectionInbound,
-		AssistantID: 1,
+		ID:             "call-panic",
+		Session:        s,
+		Direction:      sip_infra.CallDirectionInbound,
+		AssistantID:    1,
 		ConversationID: 42,
 	})
 
@@ -168,14 +170,14 @@ func TestDispatcherBackpressureAndTeardownStress(t *testing.T) {
 
 	for i := 0; i < calls; i++ {
 		s := newPipelineTestSession(t)
-			d.OnPipeline(ctx, sip_infra.SessionEstablishedPipeline{
-				ID:          fmt.Sprintf("call-%d", i),
-				Session:     s,
-				Direction:   sip_infra.CallDirectionInbound,
-				AssistantID: 1,
-				ConversationID: uint64(i + 1),
-			})
-		}
+		d.OnPipeline(ctx, sip_infra.SessionEstablishedPipeline{
+			ID:             fmt.Sprintf("call-%d", i),
+			Session:        s,
+			Direction:      sip_infra.CallDirectionInbound,
+			AssistantID:    1,
+			ConversationID: uint64(i + 1),
+		})
+	}
 
 	if waitTimeout(&endedWG, 10*time.Second) {
 		t.Fatalf("timed out waiting for call teardown completion (started=%d ended=%d)", startCount.Load(), endCount.Load())

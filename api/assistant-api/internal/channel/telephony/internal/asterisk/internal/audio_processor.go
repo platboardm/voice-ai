@@ -52,8 +52,8 @@ type AudioProcessor struct {
 	silenceByte      byte
 	optimalFrameSize int
 
-	inputBuffer   *bytes.Buffer
-	inputBufferMu sync.Mutex
+	inputBuffer    *bytes.Buffer
+	inputBufferMu  sync.Mutex
 	outputBuffer   *bytes.Buffer
 	outputBufferMu sync.Mutex
 

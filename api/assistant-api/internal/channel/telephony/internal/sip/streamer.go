@@ -41,7 +41,7 @@ type Streamer struct {
 	session    *sip_infra.Session
 	rtpHandler *sip_infra.RTPHandler
 
-	ctx   context.Context
+	ctx    context.Context
 	cancel context.CancelFunc
 }
 

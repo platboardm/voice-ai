@@ -398,7 +398,7 @@ func (s *webrtcStreamer) readRemoteAudio(track *pionwebrtc.TrackRemote) {
 			s.Logger.Debugw("Opus decode failed", "error", err, "payloadSize", len(pkt.Payload))
 			continue
 		}
-			resampled, err := s.resampler.Resample(pcm, internal_audio.WEBRTC_AUDIO_CONFIG, internal_audio.RAPIDA_INTERNAL_AUDIO_CONFIG)
+		resampled, err := s.resampler.Resample(pcm, internal_audio.WEBRTC_AUDIO_CONFIG, internal_audio.RAPIDA_INTERNAL_AUDIO_CONFIG)
 		if err != nil {
 			s.Logger.Debugw("Audio resample failed", "error", err)
 			continue

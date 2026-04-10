@@ -67,8 +67,8 @@ func TestRunInboundCall_HappyPath(t *testing.T) {
 	})
 
 	result := d.Run(context.Background(), CallReceivedPipeline{
-		ID:         "call-1",
-		Provider:   "twilio",
+		ID:          "call-1",
+		Provider:    "twilio",
 		AssistantID: 42,
 		GinContext:  ginCtx,
 	})
@@ -94,7 +94,7 @@ func TestRunInboundCall_NilCallInfo(t *testing.T) {
 	result := d.Run(context.Background(), CallReceivedPipeline{
 		ID:         "status-cb",
 		Provider:   "twilio",
-		GinContext:  fakeGinContext(),
+		GinContext: fakeGinContext(),
 	})
 
 	if result.Error != nil {
@@ -113,7 +113,7 @@ func TestRunInboundCall_ReceiveCallError(t *testing.T) {
 	result := d.Run(context.Background(), CallReceivedPipeline{
 		ID:         "bad-wh",
 		Provider:   "twilio",
-		GinContext:  fakeGinContext(),
+		GinContext: fakeGinContext(),
 	})
 
 	if !errors.Is(result.Error, webhookErr) {
@@ -129,7 +129,7 @@ func TestRunInboundCall_MissingReceiveCallCallback(t *testing.T) {
 	result := d.Run(context.Background(), CallReceivedPipeline{
 		ID:         "no-cb",
 		Provider:   "twilio",
-		GinContext:  fakeGinContext(),
+		GinContext: fakeGinContext(),
 	})
 
 	if !errors.Is(result.Error, ErrCallbackNotConfigured) {
@@ -154,7 +154,7 @@ func TestRunInboundCall_LoadAssistantError(t *testing.T) {
 	result := d.Run(ctx, CallReceivedPipeline{
 		ID:         "bad-asst",
 		Provider:   "twilio",
-		GinContext:  fakeGinContext(),
+		GinContext: fakeGinContext(),
 	})
 
 	if !errors.Is(result.Error, loadErr) {
@@ -188,7 +188,7 @@ func TestRunInboundCall_SaveCallContextError(t *testing.T) {
 	result := d.Run(ctx, CallReceivedPipeline{
 		ID:         "save-fail",
 		Provider:   "twilio",
-		GinContext:  fakeGinContext(),
+		GinContext: fakeGinContext(),
 	})
 
 	if !errors.Is(result.Error, saveErr) {
@@ -206,7 +206,7 @@ func TestRunInboundCall_InlineExecution(t *testing.T) {
 	result := d.Run(context.Background(), CallReceivedPipeline{
 		ID:         "inline",
 		Provider:   "twilio",
-		GinContext:  fakeGinContext(),
+		GinContext: fakeGinContext(),
 	})
 
 	// Result must be available synchronously.

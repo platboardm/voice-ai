@@ -85,4 +85,3 @@ func (cc *CallContext) ToAuth() types.SimplePrinciple {
 	}
 	return auth
 }
-

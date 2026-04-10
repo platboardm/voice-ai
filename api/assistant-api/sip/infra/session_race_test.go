@@ -150,4 +150,3 @@ func TestSessionConcurrentMetadataAndLifecycle(t *testing.T) {
 
 	require.True(t, s.IsEnded())
 }
-

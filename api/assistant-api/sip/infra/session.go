@@ -560,7 +560,6 @@ func (s *Session) End() {
 	}
 }
 
-
 // IsActive returns whether the session is still active
 func (s *Session) IsActive() bool {
 	if s.ended.Load() {
