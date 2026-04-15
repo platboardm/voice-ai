@@ -1,18 +1,8 @@
 import { useGlobalNavigation } from '@/hooks/use-global-navigator';
 import { cn } from '@/utils';
-import {
-  ChatBot,
-  Connect,
-  Plug,
-  Activity,
-  Launch,
-  Add,
-} from '@carbon/icons-react';
+import { ChatBot, Connect, Plug, Activity, Launch } from '@carbon/icons-react';
 import { ClickableTile, Tag, Link } from '@carbon/react';
-import {
-  LabeledIconButton,
-  PrimaryButton,
-} from '@/app/components/carbon/button';
+import { PrimaryButton } from '@/app/components/carbon/button';
 
 const quickStart = [
   {
@@ -87,14 +77,12 @@ export const HomePage = () => {
       {/* ── Page header — IBM Dashboard style ── */}
       <div className="px-6 pt-6 pb-6 flex items-start justify-between">
         <h1 className="text-2xl font-light tracking-tight">Dashboard</h1>
-        <LabeledIconButton
-          kind="primary"
+        <PrimaryButton
           size="md"
-          className="content-between flex"
           onClick={() => navigation.goToCreateAssistant()}
         >
           Create assistant
-        </LabeledIconButton>
+        </PrimaryButton>
       </div>
 
       {/* ── Quick start cards — horizontal scroll ── */}
