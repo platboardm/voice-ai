@@ -1843,16 +1843,13 @@ func (s *Server) prepareOutboundInvite(ctx context.Context, cfg *Config, toURI, 
 		fromDomain = cfg.Server
 	}
 	fromUser := strings.TrimSpace(fromURI)
-	if cfg.CallerID != "" {
-		fromUser = cfg.CallerID
-	}
 	if fromUser == "" {
 		fromUser = cfg.Username
 	}
 	if fromUser == "" {
 		rtpHandler.Stop()
 		s.rtpAllocator.Release(rtpPort)
-		return nil, fmt.Errorf("SIP From user is empty: fromPhone, sip_caller_id, or sip_username must be set")
+		return nil, fmt.Errorf("SIP From user is empty: fromPhone or sip_username must be set")
 	}
 
 	fromHDR := &sip.FromHeader{

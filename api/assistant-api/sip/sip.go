@@ -1018,12 +1018,10 @@ func (m *SIPEngine) executeBridgeTransfer(inboundSession *sip_infra.Session, sip
 		cfg = inboundSession.GetConfig()
 	}
 
-	// Determine the From URI for the outbound leg
-	fromURI := cfg.CallerID
-	if fromURI == "" {
-		fromURI = cfg.Username
-	}
-
+	// Use the assistant's DID as the From URI — same as the normal outbound path
+	// where the API caller passes the DID as fromPhone. LocalURI is set by the
+	// SIP stack: inbound = To header (number caller dialed), outbound = From header.
+	fromURI := sip_infra.ExtractDIDFromURI(inboundSession.GetInfo().LocalURI)
 	bridgeCtx, bridgeCancel := context.WithTimeout(inboundSession.Context(), sip_infra.BridgeCallTimeout)
 	defer bridgeCancel()
 
