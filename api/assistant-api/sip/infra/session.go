@@ -39,6 +39,7 @@ type SessionConfig struct {
 	Logger          commons.Logger
 	Auth            types.SimplePrinciple                // Authentication principal
 	Assistant       *internal_assistant_entity.Assistant // Assistant entity
+	ConversationID  uint64                               // Conversation ID (outbound: set by channel pipeline)
 	VaultCredential *protos.VaultCredential              // Vault-resolved SIP provider credential
 }
 
@@ -71,6 +72,7 @@ type Session struct {
 	// Authentication and authorization context - available in all session methods
 	auth            types.SimplePrinciple                // Authentication principal
 	assistant       *internal_assistant_entity.Assistant // Assistant entity
+	conversationID  uint64                               // Conversation ID
 	vaultCredential *protos.VaultCredential              // Vault-resolved SIP provider credential
 
 	// byeReceived is closed when a SIP BYE is received for this session.
@@ -144,6 +146,7 @@ func NewSession(ctx context.Context, cfg *SessionConfig) (*Session, error) {
 		negotiatedCodec: codec,
 		auth:            cfg.Auth,
 		assistant:       cfg.Assistant,
+		conversationID:  cfg.ConversationID,
 		vaultCredential: cfg.VaultCredential,
 		byeReceived:     make(chan struct{}),
 	}
@@ -483,6 +486,13 @@ func (s *Session) GetAuth() types.SimplePrinciple {
 	return s.auth
 }
 
+// SetAuth sets the authentication principal for this session.
+func (s *Session) SetAuth(auth types.SimplePrinciple) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.auth = auth
+}
+
 // GetAssistant returns the assistant entity for this session.
 func (s *Session) GetAssistant() *internal_assistant_entity.Assistant {
 	s.mu.RLock()
@@ -490,8 +500,28 @@ func (s *Session) GetAssistant() *internal_assistant_entity.Assistant {
 	return s.assistant
 }
 
+// SetAssistant sets the assistant entity for this session.
+func (s *Session) SetAssistant(assistant *internal_assistant_entity.Assistant) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.assistant = assistant
+}
+
+// GetConversationID returns the conversation ID for this session.
+func (s *Session) GetConversationID() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.conversationID
+}
+
+// SetConversationID sets the conversation ID for this session.
+func (s *Session) SetConversationID(id uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.conversationID = id
+}
+
 // GetVaultCredential returns the vault-resolved SIP provider credential for this session.
-// Available in all session methods after session creation.
 func (s *Session) GetVaultCredential() *protos.VaultCredential {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

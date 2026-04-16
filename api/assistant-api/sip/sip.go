@@ -271,32 +271,14 @@ func (m *SIPEngine) onInvite(session *sip_infra.Session, fromURI, toURI string) 
 		return fmt.Errorf("missing auth on session %s", callID)
 	}
 
-	var assistantID uint64
 	assistant := session.GetAssistant()
-	if assistant != nil {
-		assistantID = assistant.Id
-	} else if idVal, ok := session.GetMetadata("assistant_id"); ok {
-		if id, ok := idVal.(uint64); ok && id > 0 {
-			assistantID = id
-			loaded, err := m.assistantService.Get(m.ctx, auth, id, utils.GetVersionDefinition("latest"),
-				&internal_services.GetAssistantOption{InjectPhoneDeployment: true})
-			if err != nil {
-				return fmt.Errorf("failed to load assistant %d for outbound call: %w", id, err)
-			}
-			session.SetMetadata("assistant", loaded)
-		}
-	}
-	if assistantID == 0 {
+	if assistant == nil {
 		return fmt.Errorf("missing assistant context on session %s", callID)
 	}
 
-	// For outbound, pass conversation_id from session metadata (created by channel pipeline)
-	var conversationID uint64
-	if convIDVal, ok := session.GetMetadata("conversation_id"); ok {
-		if id, ok := convIDVal.(uint64); ok {
-			conversationID = id
-		}
-	}
+	// For outbound, conversation_id is set on the session by MakeCall.
+	// For inbound, it's 0 here — created later by handleSessionEstablished.
+	conversationID := session.GetConversationID()
 
 	m.dispatcher.OnPipeline(m.ctx, sip_infra.SessionEstablishedPipeline{
 		ID:              callID,
@@ -304,7 +286,7 @@ func (m *SIPEngine) onInvite(session *sip_infra.Session, fromURI, toURI string) 
 		Config:          session.GetConfig(),
 		VaultCredential: session.GetVaultCredential(),
 		Direction:       info.Direction,
-		AssistantID:     assistantID,
+		AssistantID:     assistant.Id,
 		Auth:            auth,
 		FromURI:         fromURI,
 		ConversationID:  conversationID,
@@ -334,12 +316,8 @@ func (m *SIPEngine) onError(session *sip_infra.Session, callErr error) {
 	callID := session.GetCallID()
 	m.logger.Warnw("SIP error", "call_id", callID, "error", callErr)
 
-	convIDVal, hasConv := session.GetMetadata("conversation_id")
-	if !hasConv {
-		return
-	}
-	convID, ok := convIDVal.(uint64)
-	if !ok || convID == 0 {
+	convID := session.GetConversationID()
+	if convID == 0 {
 		return
 	}
 
@@ -348,8 +326,10 @@ func (m *SIPEngine) onError(session *sip_infra.Session, callErr error) {
 		return
 	}
 
-	assistantIDVal, _ := session.GetMetadata("assistant_id")
-	assistantID, _ := assistantIDVal.(uint64)
+	var assistantID uint64
+	if assistant := session.GetAssistant(); assistant != nil {
+		assistantID = assistant.Id
+	}
 
 	setup := &sip_pipeline.CallSetupResult{
 		AssistantID:    assistantID,

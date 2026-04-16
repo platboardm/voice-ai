@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rapidaai/api/assistant-api/config"
+	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
 	"github.com/rapidaai/pkg/commons"
@@ -103,7 +104,8 @@ func (t *sipTelephony) OutboundCall(
 	auth types.SimplePrinciple,
 	toPhone string,
 	fromPhone string,
-	assistantId, assistantConversationId uint64,
+	assistant *internal_assistant_entity.Assistant,
+	assistantConversationId uint64,
 	vaultCredential *protos.VaultCredential,
 	opts utils.Option,
 ) (*internal_type.CallInfo, error) {
@@ -129,7 +131,7 @@ func (t *sipTelephony) OutboundCall(
 
 	session, err := t.sharedServer.MakeCall(context.Background(), cfg, toPhone, fromPhone, sip_infra.MakeCallOptions{
 		Auth:            auth,
-		AssistantID:     assistantId,
+		Assistant:       assistant,
 		ConversationID:  assistantConversationId,
 		VaultCredential: vaultCredential,
 	})
@@ -143,7 +145,7 @@ func (t *sipTelephony) OutboundCall(
 		"to", toPhone,
 		"from", fromPhone,
 		"call_id", session.GetCallID(),
-		"assistant_id", assistantId,
+		"assistant_id", assistant.Id,
 		"conversation_id", assistantConversationId)
 
 	info.ChannelUUID = session.GetCallID()
@@ -154,7 +156,7 @@ func (t *sipTelephony) OutboundCall(
 			"to":              toPhone,
 			"from":            fromPhone,
 			"call_id":         session.GetCallID(),
-			"assistant_id":    assistantId,
+			"assistant_id":    assistant.Id,
 			"conversation_id": assistantConversationId,
 		},
 	}

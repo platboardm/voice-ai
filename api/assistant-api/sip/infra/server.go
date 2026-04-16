@@ -1435,8 +1435,7 @@ func (s *Server) sendBye(session *Session) {
 // MakeCallOptions holds the typed context for an outbound call.
 type MakeCallOptions struct {
 	Auth            types.SimplePrinciple
-	Assistant       *internal_assistant_entity.Assistant // Full entity if available
-	AssistantID     uint64                               // Fallback when entity is not available
+	Assistant       *internal_assistant_entity.Assistant
 	ConversationID  uint64
 	VaultCredential *protos.VaultCredential
 }
@@ -1462,6 +1461,7 @@ func (s *Server) MakeCall(ctx context.Context, cfg *Config, toURI, fromURI strin
 		Logger:          s.logger,
 		Auth:            opts.Auth,
 		Assistant:       opts.Assistant,
+		ConversationID:  opts.ConversationID,
 		VaultCredential: opts.VaultCredential,
 	})
 	if err != nil {
@@ -1472,14 +1472,6 @@ func (s *Server) MakeCall(ctx context.Context, cfg *Config, toURI, fromURI strin
 	session.SetLocalRTP(invite.externalIP, invite.localPort)
 	session.SetRTPHandler(invite.rtpHandler)
 	session.SetDialogClientSession(invite.dialogSession)
-
-	// Set metadata for onInvite backward compatibility
-	if opts.Assistant != nil {
-		session.SetMetadata("assistant_id", opts.Assistant.Id)
-	} else if opts.AssistantID > 0 {
-		session.SetMetadata("assistant_id", opts.AssistantID)
-	}
-	session.SetMetadata("conversation_id", opts.ConversationID)
 
 	s.registerSession(session, invite.callID)
 
