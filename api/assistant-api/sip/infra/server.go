@@ -1931,8 +1931,15 @@ func (s *Server) waitForAnswer(ctx context.Context, invite *outboundInvite, cfg 
 					invite.rtpHandler.SetCodec(sdpInfo.PreferredCodec)
 					negotiatedCodec = sdpInfo.PreferredCodec
 				}
+			} else if parseErr != nil {
+				s.logger.Warnw("Failed to parse SDP from 200 OK",
+					"call_id", invite.callID, "error", parseErr)
 			}
+		} else {
+			s.logger.Warnw("No SDP body in 200 OK response", "call_id", invite.callID)
 		}
+	} else {
+		s.logger.Warnw("No InviteResponse available after WaitAnswer", "call_id", invite.callID)
 	}
 
 	invite.rtpHandler.Start()
