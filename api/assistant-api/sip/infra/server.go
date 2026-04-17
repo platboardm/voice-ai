@@ -17,7 +17,9 @@ import (
 
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
+	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	"github.com/rapidaai/pkg/commons"
+	"github.com/rapidaai/pkg/types"
 	"github.com/rapidaai/protos"
 	"github.com/redis/go-redis/v9"
 )
@@ -638,8 +640,8 @@ func (s *Server) handleInvite(req *sip.Request, tx sip.ServerTransaction) {
 		CallID:          callID,
 		Codec:           negotiatedCodec,
 		Logger:          s.logger,
-		Auth:            resolvedExtra["auth"],
-		Assistant:       resolvedExtra["assistant"],
+		Auth:            resolvedExtra["auth"].(types.SimplePrinciple),
+		Assistant:       resolvedExtra["assistant"].(*internal_assistant_entity.Assistant),
 		VaultCredential: vaultCredential,
 	})
 	if err != nil {
@@ -1430,10 +1432,18 @@ func (s *Server) sendBye(session *Session) {
 	}
 }
 
+// MakeCallOptions holds the typed context for an outbound call.
+type MakeCallOptions struct {
+	Auth            types.SimplePrinciple
+	Assistant       *internal_assistant_entity.Assistant
+	ConversationID  uint64
+	VaultCredential *protos.VaultCredential
+}
+
 // MakeCall initiates an outbound SIP call using the DialogClientCache.
 // The cache stores the dialog so incoming BYE/re-INVITE are properly routed
 // to the correct DialogClientSession via handleBye → dialogClientCache.ReadBye.
-func (s *Server) MakeCall(ctx context.Context, cfg *Config, toURI, fromURI string, metadata map[string]interface{}) (*Session, error) {
+func (s *Server) MakeCall(ctx context.Context, cfg *Config, toURI, fromURI string, opts MakeCallOptions) (*Session, error) {
 	if s.state.Load() != int32(ServerStateRunning) {
 		return nil, fmt.Errorf("SIP server is not running")
 	}
@@ -1443,35 +1453,16 @@ func (s *Server) MakeCall(ctx context.Context, cfg *Config, toURI, fromURI strin
 		return nil, err
 	}
 
-	// Extract auth, assistant, and vault credential from metadata for direct session access
-	var sessionAuth interface{}
-	var sessionAssistant interface{}
-	var sessionVaultCred *protos.VaultCredential
-
-	if metadata != nil {
-		if val, ok := metadata["auth"]; ok {
-			sessionAuth = val
-		}
-		if val, ok := metadata["assistant"]; ok {
-			sessionAssistant = val
-		}
-		if vaultCredVal, ok := metadata["vault_credential"]; ok {
-			if vaultCred, ok := vaultCredVal.(*protos.VaultCredential); ok {
-				sessionVaultCred = vaultCred
-			}
-		}
-	}
-
-	// Create our internal session with auth and assistant context
 	session, err := NewSession(ctx, &SessionConfig{
 		Config:          cfg,
 		Direction:       CallDirectionOutbound,
 		CallID:          invite.callID,
 		Codec:           &CodecPCMU,
 		Logger:          s.logger,
-		Auth:            sessionAuth,
-		Assistant:       sessionAssistant,
-		VaultCredential: sessionVaultCred,
+		Auth:            opts.Auth,
+		Assistant:       opts.Assistant,
+		ConversationID:  opts.ConversationID,
+		VaultCredential: opts.VaultCredential,
 	})
 	if err != nil {
 		invite.cleanup()
@@ -1481,15 +1472,6 @@ func (s *Server) MakeCall(ctx context.Context, cfg *Config, toURI, fromURI strin
 	session.SetLocalRTP(invite.externalIP, invite.localPort)
 	session.SetRTPHandler(invite.rtpHandler)
 	session.SetDialogClientSession(invite.dialogSession)
-
-	// Set metadata on the session BEFORE launching the goroutine.
-	// handleOutboundDialog runs asynchronously and calls onInvite → handleOutboundAnswered
-	// which reads this metadata. On fast LANs the 200 OK can arrive before the caller
-	// of MakeCall gets a chance to set metadata, causing a race condition where
-	// handleOutboundAnswered fails with "outbound session missing assistant_id metadata".
-	for k, v := range metadata {
-		session.SetMetadata(k, v)
-	}
 
 	s.registerSession(session, invite.callID)
 
@@ -1843,13 +1825,16 @@ func (s *Server) prepareOutboundInvite(ctx context.Context, cfg *Config, toURI, 
 		fromDomain = cfg.Server
 	}
 	fromUser := strings.TrimSpace(fromURI)
+	if cfg.CallerID != "" {
+		fromUser = cfg.CallerID
+	}
 	if fromUser == "" {
 		fromUser = cfg.Username
 	}
 	if fromUser == "" {
 		rtpHandler.Stop()
 		s.rtpAllocator.Release(rtpPort)
-		return nil, fmt.Errorf("SIP From user is empty: fromPhone or sip_username must be set")
+		return nil, fmt.Errorf("SIP From user is empty: fromPhone, caller_id, or sip_username must be set")
 	}
 
 	fromHDR := &sip.FromHeader{

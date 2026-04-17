@@ -45,6 +45,7 @@ func (d *Dispatcher) handleSessionEstablished(ctx context.Context, v sip_infra.S
 			v.Session.End()
 			return
 		}
+		v.Session.SetConversationID(conversationID)
 	}
 
 	setup, err := d.onCallSetup(ctx, v.Session, v.Auth, v.AssistantID, conversationID)

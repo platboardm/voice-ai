@@ -266,38 +266,19 @@ func (m *SIPEngine) onInvite(session *sip_infra.Session, fromURI, toURI string) 
 		return fmt.Errorf("session already ended")
 	}
 
-	authVal, _ := session.GetMetadata("auth")
-	auth, _ := authVal.(types.SimplePrinciple)
+	auth := session.GetAuth()
 	if auth == nil {
 		return fmt.Errorf("missing auth on session %s", callID)
 	}
 
-	var assistantID uint64
-	assistantVal, _ := session.GetMetadata("assistant")
-	if assistant, ok := assistantVal.(*internal_assistant_entity.Assistant); ok && assistant != nil {
-		assistantID = assistant.Id
-	} else if idVal, ok := session.GetMetadata("assistant_id"); ok {
-		if id, ok := idVal.(uint64); ok && id > 0 {
-			assistantID = id
-			assistant, err := m.assistantService.Get(m.ctx, auth, id, utils.GetVersionDefinition("latest"),
-				&internal_services.GetAssistantOption{InjectPhoneDeployment: true})
-			if err != nil {
-				return fmt.Errorf("failed to load assistant %d for outbound call: %w", id, err)
-			}
-			session.SetMetadata("assistant", assistant)
-		}
-	}
-	if assistantID == 0 {
+	assistant := session.GetAssistant()
+	if assistant == nil {
 		return fmt.Errorf("missing assistant context on session %s", callID)
 	}
 
-	// For outbound, pass conversation_id from session metadata (created by channel pipeline)
-	var conversationID uint64
-	if convIDVal, ok := session.GetMetadata("conversation_id"); ok {
-		if id, ok := convIDVal.(uint64); ok {
-			conversationID = id
-		}
-	}
+	// For outbound, conversation_id is set on the session by MakeCall.
+	// For inbound, it's 0 here — created later by handleSessionEstablished.
+	conversationID := session.GetConversationID()
 
 	m.dispatcher.OnPipeline(m.ctx, sip_infra.SessionEstablishedPipeline{
 		ID:              callID,
@@ -305,7 +286,7 @@ func (m *SIPEngine) onInvite(session *sip_infra.Session, fromURI, toURI string) 
 		Config:          session.GetConfig(),
 		VaultCredential: session.GetVaultCredential(),
 		Direction:       info.Direction,
-		AssistantID:     assistantID,
+		AssistantID:     assistant.Id,
 		Auth:            auth,
 		FromURI:         fromURI,
 		ConversationID:  conversationID,
@@ -335,23 +316,20 @@ func (m *SIPEngine) onError(session *sip_infra.Session, callErr error) {
 	callID := session.GetCallID()
 	m.logger.Warnw("SIP error", "call_id", callID, "error", callErr)
 
-	convIDVal, hasConv := session.GetMetadata("conversation_id")
-	if !hasConv {
-		return
-	}
-	convID, ok := convIDVal.(uint64)
-	if !ok || convID == 0 {
+	convID := session.GetConversationID()
+	if convID == 0 {
 		return
 	}
 
-	authVal, _ := session.GetMetadata("auth")
-	auth, _ := authVal.(types.SimplePrinciple)
+	auth := session.GetAuth()
 	if auth == nil {
 		return
 	}
 
-	assistantIDVal, _ := session.GetMetadata("assistant_id")
-	assistantID, _ := assistantIDVal.(uint64)
+	var assistantID uint64
+	if assistant := session.GetAssistant(); assistant != nil {
+		assistantID = assistant.Id
+	}
 
 	setup := &sip_pipeline.CallSetupResult{
 		AssistantID:    assistantID,
@@ -444,6 +422,12 @@ func (m *SIPEngine) fetchSIPConfigAndVaultCredential(auth types.SimplePrinciple,
 	sipConfig, err := sip_infra.ParseConfigFromVault(vaultCred)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse SIP config from vault: %w", err)
+	}
+
+	// Set CallerID to the assistant's DID from the phone deployment.
+	// This is used as the From URI user in outbound INVITEs (prepareOutboundInvite).
+	if did, err := opts.GetString("phone"); err == nil && did != "" {
+		sipConfig.CallerID = strings.TrimPrefix(did, "+")
 	}
 
 	if m.cfg.SIPConfig != nil {
@@ -856,10 +840,7 @@ func (m *SIPEngine) pipelineCreateConversation(ctx context.Context, auth types.S
 // pipelineCallSetup builds the CallSetupResult from auth and IDs.
 // Pure function — conversation must already exist (created by pipeline or channel layer).
 func (m *SIPEngine) pipelineCallSetup(ctx context.Context, session *sip_infra.Session, auth types.SimplePrinciple, assistantID uint64, conversationID uint64) (*sip_pipeline.CallSetupResult, error) {
-	var assistant *internal_assistant_entity.Assistant
-	if assistantVal, ok := session.GetMetadata("assistant"); ok {
-		assistant, _ = assistantVal.(*internal_assistant_entity.Assistant)
-	}
+	assistant := session.GetAssistant()
 	if assistant == nil {
 		var err error
 		assistant, err = m.assistantService.Get(ctx, auth, assistantID, utils.GetVersionDefinition("latest"),
@@ -907,8 +888,7 @@ func (m *SIPEngine) pipelineCallStart(ctx context.Context, session *sip_infra.Se
 		return fmt.Errorf("session_ended_before_start")
 	}
 
-	authVal, _ := session.GetMetadata("auth")
-	auth, _ := authVal.(types.SimplePrinciple)
+	auth := session.GetAuth()
 
 	cc := &callcontext.CallContext{
 		AssistantID:         setup.AssistantID,
@@ -1018,10 +998,17 @@ func (m *SIPEngine) executeBridgeTransfer(inboundSession *sip_infra.Session, sip
 		cfg = inboundSession.GetConfig()
 	}
 
-	// Use the assistant's DID as the From URI — same as the normal outbound path
-	// where the API caller passes the DID as fromPhone. LocalURI is set by the
-	// SIP stack: inbound = To header (number caller dialed), outbound = From header.
-	fromURI := sip_infra.ExtractDIDFromURI(inboundSession.GetInfo().LocalURI)
+	// cfg.CallerID is the assistant's DID — set by fetchSIPConfigAndVaultCredential
+	// for inbound calls. For outbound calls it may be empty (telephony.parseConfig
+	// doesn't set it), so resolve from the assistant's phone deployment.
+	if cfg.CallerID == "" {
+		if assistant := inboundSession.GetAssistant(); assistant != nil && assistant.AssistantPhoneDeployment != nil {
+			if did, err := assistant.AssistantPhoneDeployment.GetOptions().GetString("phone"); err == nil && did != "" {
+				cfg.CallerID = strings.TrimPrefix(did, "+")
+			}
+		}
+	}
+
 	bridgeCtx, bridgeCancel := context.WithTimeout(inboundSession.Context(), sip_infra.BridgeCallTimeout)
 	defer bridgeCancel()
 
@@ -1029,7 +1016,7 @@ func (m *SIPEngine) executeBridgeTransfer(inboundSession *sip_infra.Session, sip
 	srv := m.server
 	m.mu.RUnlock()
 
-	outboundSession, err := srv.MakeBridgeCall(bridgeCtx, cfg, target, fromURI)
+	outboundSession, err := srv.MakeBridgeCall(bridgeCtx, cfg, target, cfg.CallerID)
 	if err != nil {
 		m.logger.Errorw("Bridge transfer: outbound call failed",
 			"call_id", callID, "target", target, "error", err)
