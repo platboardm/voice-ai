@@ -78,11 +78,20 @@ func (d *Dispatcher) handleCallFailed(ctx context.Context, v sip_infra.CallFaile
 	if d.onCreateObserver != nil {
 		observer := d.onCreateObserver(ctx, setup, auth)
 		if observer != nil {
+			eventData := map[string]string{
+				obs.DataType:      obs.EventCallFailed,
+				obs.DataProvider:  "sip",
+				obs.DataReason:    reason,
+				obs.DataDirection: string(v.Session.GetInfo().Direction),
+			}
+			if v.SIPCode > 0 {
+				eventData["sip_code"] = fmt.Sprintf("%d", v.SIPCode)
+			}
+			if v.Error != nil {
+				eventData[obs.DataError] = v.Error.Error()
+			}
 			observer.EmitMetric(ctx, obs.CallStatusMetric("FAILED", reason))
-			observer.EmitEvent(ctx, obs.ComponentTelephony, map[string]string{
-				obs.DataType:   obs.EventCallEnded,
-				obs.DataReason: reason,
-			})
+			observer.EmitEvent(ctx, obs.ComponentTelephony, eventData)
 			observer.Shutdown(ctx)
 		}
 	}

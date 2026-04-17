@@ -157,9 +157,11 @@ func (d *Dispatcher) handleSessionEstablished(ctx context.Context, v sip_infra.S
 					d.logger.Infow("Pipeline: bridge transfer",
 						"call_id", v.ID, "target", target, "status", transferStatus)
 					observer.EmitEvent(ctx, obs.ComponentTelephony, map[string]string{
-						obs.DataType:   obs.EventTransferRequested,
-						obs.DataTo:     target,
-						obs.DataReason: transferStatus,
+						obs.DataType:      obs.EventTransferRequested,
+						obs.DataProvider:  "sip",
+						obs.DataDirection: string(v.Direction),
+						obs.DataTo:        target,
+						obs.DataReason:    transferStatus,
 					})
 				}
 			}
