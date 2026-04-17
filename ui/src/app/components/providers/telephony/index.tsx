@@ -114,7 +114,8 @@ export const TelephonyProvider: React.FC<ProviderComponentProps> = props => {
     onChangeParameter(updatedParams);
   };
 
-  const selectedProvider = TELEPHONY_PROVIDER.find(x => x.code === provider) || null;
+  const selectedProvider =
+    TELEPHONY_PROVIDER.find(x => x.code === provider) || null;
 
   return (
     <Stack gap={6}>
@@ -128,7 +129,7 @@ export const TelephonyProvider: React.FC<ProviderComponentProps> = props => {
         onChange={({ selectedItem }: any) => {
           if (selectedItem) onChangeProvider(selectedItem.code);
         }}
-        helperText="Choose a telephony provider to handle voice communication for your applications."
+        helperText="Select a telephony provider for inbound and outbound phone calls."
       />
       {provider && (
         <CredentialDropdown

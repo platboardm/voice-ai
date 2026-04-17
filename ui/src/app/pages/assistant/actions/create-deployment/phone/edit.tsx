@@ -38,15 +38,12 @@ import {
   ValidateTelephonyOptions,
 } from '@/app/components/providers/telephony';
 import { useConfirmDialog } from '@/app/pages/assistant/actions/hooks/use-confirmation';
-import { TabForm } from '@/app/components/form/tab-form';
-import {
-  PrimaryButton,
-  SecondaryButton,
-  GhostButton,
-} from '@/app/components/carbon/button';
+import { Tabs } from '@/app/components/carbon/tabs';
+import { PrimaryButton, SecondaryButton } from '@/app/components/carbon/button';
+import { Notification } from '@/app/components/carbon/notification';
 import { ButtonSet } from '@carbon/react';
 
-const STEPS = [
+const EDIT_TABS = [
   {
     code: 'telephony',
     name: 'Telephony',
@@ -69,21 +66,20 @@ const STEPS = [
     name: 'Voice Output',
     description: 'Configure the text-to-speech provider for audio responses.',
   },
-];
+] as const;
 
-export function ConfigureAssistantCallDeploymentPage() {
-  const { assistantId } = useParams();
+export function EditAssistantCallDeploymentPage() {
+  const { assistantId, deploymentId } = useParams();
+  void deploymentId;
   return (
     <>
-      <Helmet title="Configure phone deployment" />
-      {assistantId && (
-        <ConfigureAssistantCallDeployment assistantId={assistantId} />
-      )}
+      <Helmet title="Edit phone deployment" />
+      {assistantId && <EditAssistantCallDeployment assistantId={assistantId} />}
     </>
   );
 }
 
-const ConfigureAssistantCallDeployment: FC<{ assistantId: string }> = ({
+const EditAssistantCallDeployment: FC<{ assistantId: string }> = ({
   assistantId,
 }) => {
   const { goToDeploymentAssistant } = useGlobalNavigation();
@@ -210,58 +206,12 @@ const ConfigureAssistantCallDeployment: FC<{ assistantId: string }> = ({
       .filter(c => c.getProvider() === provider)
       .map(c => c.getId());
 
-  const handleTabChange = (code: string) => {
-    const clickedIndex = STEPS.findIndex(s => s.code === code);
-    const currentIndex = STEPS.findIndex(s => s.code === activeTab);
-    if (clickedIndex < currentIndex) {
-      setActiveTab(code);
-      setErrorMessage('');
-    }
-  };
+  const activeIndex = EDIT_TABS.findIndex(tab => tab.code === activeTab);
 
-  const handleNext = () => {
+  const handleTabChange = (index: number) => {
+    if (index < 0 || index >= EDIT_TABS.length) return;
+    setActiveTab(EDIT_TABS[index].code);
     setErrorMessage('');
-    const idx = STEPS.findIndex(s => s.code === activeTab);
-
-    if (activeTab === 'telephony') {
-      if (
-        !ValidateTelephonyOptions(
-          telephonyConfig.provider,
-          telephonyConfig.parameters,
-        )
-      ) {
-        setErrorMessage('Please provide a valid telephony configuration.');
-        return;
-      }
-    }
-
-    if (activeTab === 'voice-input') {
-      if (!audioInputConfig.provider) {
-        setErrorMessage('Please select a speech-to-text provider.');
-        return;
-      }
-      const err = ValidateSpeechToTextIfInvalid(
-        audioInputConfig.provider,
-        audioInputConfig.parameters,
-        getProviderCredentialIds(audioInputConfig.provider),
-      );
-      if (err) {
-        setErrorMessage(err);
-        return;
-      }
-    }
-
-    if (idx < STEPS.length - 1) {
-      setActiveTab(STEPS[idx + 1].code);
-    }
-  };
-
-  const handlePrevious = () => {
-    setErrorMessage('');
-    const idx = STEPS.findIndex(s => s.code === activeTab);
-    if (idx > 0) {
-      setActiveTab(STEPS[idx - 1].code);
-    }
   };
 
   const handleDeployPhone = () => {
@@ -379,177 +329,90 @@ const ConfigureAssistantCallDeployment: FC<{ assistantId: string }> = ({
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-white dark:bg-gray-900">
       <ConfirmDialogComponent />
-      <TabForm
-        formHeading="Complete all steps to configure your phone call deployment."
-        activeTab={activeTab}
-        onChangeActiveTab={handleTabChange}
-        errorMessage={errorMessage}
-        form={[
-          {
-            code: 'telephony',
-            name: 'Telephony',
-            description:
-              'Select and configure your telephony provider for inbound and outbound calls.',
-            body: (
-              <div className="max-w-4xl px-6 py-8">
-                <TelephonyProvider
-                  provider={telephonyConfig.provider}
-                  parameters={telephonyConfig.parameters}
-                  onChangeProvider={provider =>
-                    setTelephonyConfig({ provider, parameters: [] })
-                  }
-                  onChangeParameter={parameters =>
-                    setTelephonyConfig(c => ({ ...c, parameters }))
-                  }
-                />
-              </div>
-            ),
-            actions: [
-              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
-                <SecondaryButton
-                  size="lg"
-                  className="w-full h-full"
-                  onClick={() =>
-                    showDialog(() => goToDeploymentAssistant(assistantId))
-                  }
-                >
-                  Cancel
-                </SecondaryButton>
-                <PrimaryButton
-                  size="lg"
-                  type="button"
-                  className="w-full h-full"
-                  onClick={handleNext}
-                >
-                  Next
-                </PrimaryButton>
-              </ButtonSet>,
-            ],
-          },
-          {
-            code: 'experience',
-            name: 'General Experience',
-            description:
-              'Define how the assistant greets users and handles sessions.',
-            body: (
-              <ConfigureExperience
-                experienceConfig={experienceConfig}
-                setExperienceConfig={setExperienceConfig}
-              />
-            ),
-            actions: [
-              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
-                <GhostButton
-                  size="lg"
-                  className="w-full h-full"
-                  onClick={handlePrevious}
-                >
-                  Previous
-                </GhostButton>
-                <SecondaryButton
-                  size="lg"
-                  className="w-full h-full"
-                  onClick={() =>
-                    showDialog(() => goToDeploymentAssistant(assistantId))
-                  }
-                >
-                  Cancel
-                </SecondaryButton>
-                <PrimaryButton
-                  size="lg"
-                  type="button"
-                  className="w-full h-full"
-                  onClick={handleNext}
-                >
-                  Next
-                </PrimaryButton>
-              </ButtonSet>,
-            ],
-          },
-          {
-            code: 'voice-input',
-            name: 'Voice Input',
-            description:
-              'Configure the speech-to-text provider for capturing caller audio.',
-            body: (
-              <ConfigureAudioInputProvider
-                audioInputConfig={audioInputConfig}
-                setAudioInputConfig={setAudioInputConfig}
-              />
-            ),
-            actions: [
-              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
-                <GhostButton
-                  size="lg"
-                  className="w-full h-full"
-                  onClick={handlePrevious}
-                >
-                  Previous
-                </GhostButton>
-                <SecondaryButton
-                  size="lg"
-                  className="w-full h-full"
-                  onClick={() =>
-                    showDialog(() => goToDeploymentAssistant(assistantId))
-                  }
-                >
-                  Cancel
-                </SecondaryButton>
-                <PrimaryButton
-                  size="lg"
-                  type="button"
-                  className="w-full h-full"
-                  onClick={handleNext}
-                >
-                  Next
-                </PrimaryButton>
-              </ButtonSet>,
-            ],
-          },
-          {
-            code: 'voice-output',
-            name: 'Voice Output',
-            description:
-              'Configure the text-to-speech provider for audio responses.',
-            body: (
-              <ConfigureAudioOutputProvider
-                audioOutputConfig={audioOutputConfig}
-                setAudioOutputConfig={setAudioOutputConfig}
-              />
-            ),
-            actions: [
-              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
-                <GhostButton
-                  size="lg"
-                  className="w-full h-full"
-                  onClick={handlePrevious}
-                >
-                  Previous
-                </GhostButton>
-                <SecondaryButton
-                  size="lg"
-                  className="w-full h-full"
-                  onClick={() =>
-                    showDialog(() => goToDeploymentAssistant(assistantId))
-                  }
-                >
-                  Cancel
-                </SecondaryButton>
-                <PrimaryButton
-                  size="lg"
-                  type="button"
-                  className="w-full h-full"
-                  isLoading={isDeploying}
-                  disabled={isDeploying}
-                  onClick={handleDeployPhone}
-                >
-                  Deploy Phone
-                </PrimaryButton>
-              </ButtonSet>,
-            ],
-          },
-        ]}
-      />
+      <header className="px-8 pt-8 pb-6 border-b border-gray-200 dark:border-gray-800">
+        <p className="text-[10px] font-semibold tracking-[0.12em] uppercase text-gray-500 dark:text-gray-400 mb-1.5">
+          Phone Deployment
+        </p>
+        <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 leading-tight">
+          Edit phone deployment
+        </h1>
+        <p className="text-sm text-gray-500 dark:text-gray-500 mt-1.5 leading-relaxed">
+          Update telephony, voice input, general experience, and voice output.
+        </p>
+      </header>
+
+      <div className="border-b border-gray-200 dark:border-gray-800 shrink-0">
+        <Tabs
+          contained
+          aria-label="Phone deployment edit tabs"
+          tabs={EDIT_TABS.map(tab => tab.name)}
+          selectedIndex={Math.max(activeIndex, 0)}
+          onChange={handleTabChange}
+          className="w-full [&_.cds--tab--list]:w-full [&_.cds--tabs__nav]:w-full [&_.cds--tabs__nav-item]:flex-1 [&_.cds--tabs__nav-link]:w-full [&_.cds--tabs__nav-link]:justify-center [&_.cds--tabs__nav-item]:mx-0 [&_.cds--tabs__nav-link]:ml-0"
+          panelClassName="!px-0"
+        />
+      </div>
+      <div className="flex-1 min-h-0 overflow-auto">
+        {activeTab === 'telephony' && (
+          <div className="flex flex-col gap-6 max-w-4xl  px-6 py-8">
+            <TelephonyProvider
+              provider={telephonyConfig.provider}
+              parameters={telephonyConfig.parameters}
+              onChangeProvider={provider =>
+                setTelephonyConfig({ provider, parameters: [] })
+              }
+              onChangeParameter={parameters =>
+                setTelephonyConfig(c => ({ ...c, parameters }))
+              }
+            />
+          </div>
+        )}
+        {activeTab === 'voice-input' && (
+          <ConfigureAudioInputProvider
+            audioInputConfig={audioInputConfig}
+            setAudioInputConfig={setAudioInputConfig}
+          />
+        )}
+        {activeTab === 'experience' && (
+          <ConfigureExperience
+            experienceConfig={experienceConfig}
+            setExperienceConfig={setExperienceConfig}
+          />
+        )}
+        {activeTab === 'voice-output' && (
+          <ConfigureAudioOutputProvider
+            audioOutputConfig={audioOutputConfig}
+            setAudioOutputConfig={setAudioOutputConfig}
+          />
+        )}
+      </div>
+
+      <div className="shrink-0">
+        {errorMessage && (
+          <Notification kind="error" title="Error" subtitle={errorMessage} />
+        )}
+        <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+          <SecondaryButton
+            size="lg"
+            className="w-full h-full"
+            onClick={() =>
+              showDialog(() => goToDeploymentAssistant(assistantId))
+            }
+          >
+            Cancel
+          </SecondaryButton>
+          <PrimaryButton
+            size="lg"
+            type="button"
+            className="w-full h-full"
+            isLoading={isDeploying}
+            disabled={isDeploying}
+            onClick={handleDeployPhone}
+          >
+            Save Changes
+          </PrimaryButton>
+        </ButtonSet>
+      </div>
     </div>
   );
 };
