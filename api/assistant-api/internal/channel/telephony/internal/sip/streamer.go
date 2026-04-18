@@ -348,6 +348,9 @@ func (s *Streamer) ClearBridgeTarget() {
 }
 
 func (s *Streamer) SetBridgeOutRTP(rtp *sip_infra.RTPHandler) {
+	if rtp == nil {
+		return
+	}
 	s.mu.RLock()
 	inCodec := s.rtpHandler.GetCodec()
 	s.mu.RUnlock()

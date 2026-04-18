@@ -85,7 +85,8 @@ func (s *Server) MakeBridgeCall(ctx context.Context, cfg *Config, toURI, fromURI
 // for hangup. The inbound→outbound direction is handled by the caller (the SIP
 // streamer's forwardIncomingAudio switches destination via bridgeOutRTP).
 // Blocks until one side hangs up, a safety timeout, or context cancellation.
-// Tears down both sessions on exit.
+// Ends the outbound session on exit; the inbound session lifecycle is owned by
+// the caller (executeTransfer) to avoid racing with metadata writes.
 func (s *Server) BridgeTransfer(ctx context.Context, inbound, outbound *Session) error {
 	inCallID := inbound.GetCallID()
 	outCallID := outbound.GetCallID()
