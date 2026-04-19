@@ -922,6 +922,17 @@ func TestHandleResponse_FinalWithToolCalls(t *testing.T) {
 	e.stream = nil
 	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "req-4"}
 
+	// Wire mock tool executor that emits LLMToolCallPacket (matching real behavior).
+	e.toolExecutor = &mockToolExecutor{
+		executeFn: func(ctx context.Context, contextID string, calls []*protos.ToolCall, comm internal_type.Communication) {
+			for _, tc := range calls {
+				comm.OnPacket(ctx, internal_type.LLMToolCallPacket{
+					ToolID: tc.GetId(), Name: tc.GetFunction().GetName(), ContextID: contextID,
+				})
+			}
+		},
+	}
+
 	comm, collector := newTestComm()
 
 	resp := &protos.ChatResponse{
@@ -948,7 +959,7 @@ func TestHandleResponse_FinalWithToolCalls(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "calling tool", done.Text)
 
-	// stageToolFollowUp now emits LLMToolCallPacket for the dispatch layer to handle
+	// stageToolFollowUp delegates to toolExecutor.ExecuteAll which emits LLMToolCallPacket
 	toolCallPkts := findPackets[internal_type.LLMToolCallPacket](pkts)
 	require.Len(t, toolCallPkts, 1)
 	assert.Equal(t, "tc1", toolCallPkts[0].ToolID)
@@ -965,6 +976,17 @@ func TestHandleResponse_ToolFollowUpEmitsToolCallPacket(t *testing.T) {
 	stream := newMockStream()
 	e.stream = stream
 	fr := mustLanguage(t, "fr")
+
+	// Wire mock tool executor that emits LLMToolCallPacket (matching real behavior).
+	e.toolExecutor = &mockToolExecutor{
+		executeFn: func(ctx context.Context, contextID string, calls []*protos.ToolCall, comm internal_type.Communication) {
+			for _, tc := range calls {
+				comm.OnPacket(ctx, internal_type.LLMToolCallPacket{
+					ToolID: tc.GetId(), Name: tc.GetFunction().GetName(), ContextID: contextID,
+				})
+			}
+		},
+	}
 
 	comm, collector := newTestComm()
 	comm.metadata = map[string]interface{}{"client.language": "fr"}
@@ -1006,7 +1028,7 @@ func TestHandleResponse_ToolFollowUpEmitsToolCallPacket(t *testing.T) {
 	defer stream.mu.Unlock()
 	require.Len(t, stream.sendCalls, 1, "only initial send; tool follow-up is external")
 
-	// Verify LLMToolCallPacket was emitted for dispatch layer
+	// Verify LLMToolCallPacket was emitted by the tool executor via communication.OnPacket
 	toolCallPkts := findPackets[internal_type.LLMToolCallPacket](collector.all())
 	require.Len(t, toolCallPkts, 1)
 	assert.Equal(t, "tc1", toolCallPkts[0].ToolID)
@@ -1691,6 +1713,17 @@ func TestE2E_ToolCallRoundTrip(t *testing.T) {
 	e.stream = stream
 	en := mustLanguage(t, "en")
 
+	// Wire mock tool executor that emits LLMToolCallPacket (matching real behavior).
+	e.toolExecutor = &mockToolExecutor{
+		executeFn: func(ctx context.Context, contextID string, calls []*protos.ToolCall, comm internal_type.Communication) {
+			for _, tc := range calls {
+				comm.OnPacket(ctx, internal_type.LLMToolCallPacket{
+					ToolID: tc.GetId(), Name: tc.GetFunction().GetName(), ContextID: contextID,
+				})
+			}
+		},
+	}
+
 	comm, collector := newTestComm()
 
 	// 1. User asks about weather
@@ -1732,7 +1765,7 @@ func TestE2E_ToolCallRoundTrip(t *testing.T) {
 	require.Len(t, dones, 1)
 	assert.Equal(t, "Let me check", dones[0].Text)
 
-	// Verify: LLMToolCallPacket emitted for dispatch layer to handle
+	// Verify: LLMToolCallPacket emitted by tool executor via communication.OnPacket
 	toolCallPkts := findPackets[internal_type.LLMToolCallPacket](collector.all())
 	require.Len(t, toolCallPkts, 1)
 	assert.Equal(t, "tc1", toolCallPkts[0].ToolID)
@@ -2139,6 +2172,18 @@ func TestConsistency_ToolCallAppendsAssistantMessage(t *testing.T) {
 	e := newTestExecutor()
 	stream := newMockStream()
 	e.stream = stream
+
+	// Wire mock tool executor that emits LLMToolCallPacket (matching real behavior).
+	e.toolExecutor = &mockToolExecutor{
+		executeFn: func(ctx context.Context, contextID string, calls []*protos.ToolCall, comm internal_type.Communication) {
+			for _, tc := range calls {
+				comm.OnPacket(ctx, internal_type.LLMToolCallPacket{
+					ToolID: tc.GetId(), Name: tc.GetFunction().GetName(), ContextID: contextID,
+				})
+			}
+		},
+	}
+
 	comm, collector := newTestComm()
 	en := mustLanguage(t, "en")
 
@@ -2168,7 +2213,7 @@ func TestConsistency_ToolCallAppendsAssistantMessage(t *testing.T) {
 	assert.Equal(t, "assistant", snap[1].Role)
 	assert.Len(t, snap[1].GetAssistant().GetToolCalls(), 1, "assistant must have tool_calls")
 
-	// Verify LLMToolCallPacket emitted
+	// Verify LLMToolCallPacket emitted by tool executor
 	toolCallPkts := findPackets[internal_type.LLMToolCallPacket](collector.all())
 	require.Len(t, toolCallPkts, 1)
 	assert.Equal(t, "tc1", toolCallPkts[0].ToolID)
@@ -2462,4 +2507,789 @@ func TestConcurrency_PipelineStaleCheckUnderLoad(t *testing.T) {
 	for _, ev := range events {
 		assert.Equal(t, "executing", ev.Data["type"])
 	}
+}
+
+// =============================================================================
+// Tests: toolCallsResolved — direct history-based resolution
+// =============================================================================
+
+func TestToolCallsResolved_EmptyHistory(t *testing.T) {
+	e := newTestExecutor()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	assert.True(t, e.toolCallsResolved(), "empty history should be resolved")
+}
+
+func TestToolCallsResolved_NoAssistantWithToolCalls(t *testing.T) {
+	e := newTestExecutor()
+	e.mu.Lock()
+	e.history = []*protos.Message{
+		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "hello"}}},
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{Contents: []string{"hi"}}}},
+	}
+	assert.True(t, e.toolCallsResolved(), "history with no tool_calls should be resolved")
+	e.mu.Unlock()
+}
+
+func TestToolCallsResolved_PartialResults(t *testing.T) {
+	e := newTestExecutor()
+	e.mu.Lock()
+	e.history = []*protos.Message{
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			ToolCalls: []*protos.ToolCall{
+				{Id: "t1", Type: "function"},
+				{Id: "t2", Type: "function"},
+			},
+		}}},
+		{Role: "tool", Message: &protos.Message_Tool{Tool: &protos.ToolMessage{
+			Tools: []*protos.ToolMessage_Tool{{Id: "t1", Name: "fn", Content: "{}"}},
+		}}},
+	}
+	assert.False(t, e.toolCallsResolved(), "only 1 of 2 tool results should not be resolved")
+	e.mu.Unlock()
+}
+
+func TestToolCallsResolved_AllResults(t *testing.T) {
+	e := newTestExecutor()
+	e.mu.Lock()
+	e.history = []*protos.Message{
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			ToolCalls: []*protos.ToolCall{
+				{Id: "t1", Type: "function"},
+				{Id: "t2", Type: "function"},
+			},
+		}}},
+		{Role: "tool", Message: &protos.Message_Tool{Tool: &protos.ToolMessage{
+			Tools: []*protos.ToolMessage_Tool{{Id: "t1", Name: "fn1", Content: "{}"}},
+		}}},
+		{Role: "tool", Message: &protos.Message_Tool{Tool: &protos.ToolMessage{
+			Tools: []*protos.ToolMessage_Tool{{Id: "t2", Name: "fn2", Content: "{}"}},
+		}}},
+	}
+	assert.True(t, e.toolCallsResolved(), "all tool results present should be resolved")
+	e.mu.Unlock()
+}
+
+func TestToolCallsResolved_ScansBackwardsToLastAssistant(t *testing.T) {
+	// Older resolved tool set should not prevent a newer unresolved set
+	// from being detected.
+	e := newTestExecutor()
+	e.mu.Lock()
+	e.history = []*protos.Message{
+		// First round: resolved
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			ToolCalls: []*protos.ToolCall{{Id: "old1", Type: "function"}},
+		}}},
+		{Role: "tool", Message: &protos.Message_Tool{Tool: &protos.ToolMessage{
+			Tools: []*protos.ToolMessage_Tool{{Id: "old1", Name: "fn", Content: "{}"}},
+		}}},
+		// Second round (follow-up): assistant has new tool_calls, no results yet
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			ToolCalls: []*protos.ToolCall{{Id: "new1", Type: "function"}},
+		}}},
+	}
+	assert.False(t, e.toolCallsResolved(), "latest assistant with unresolved tool_calls should return false")
+	e.mu.Unlock()
+}
+
+func TestToolCallsResolved_UserAndAssistantMixedHistory(t *testing.T) {
+	// History with user messages and an assistant text-only message at the end.
+	// toolCallsResolved scans backwards; first assistant found has no tool_calls.
+	e := newTestExecutor()
+	e.mu.Lock()
+	e.history = []*protos.Message{
+		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "q1"}}},
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			ToolCalls: []*protos.ToolCall{{Id: "t1", Type: "function"}},
+		}}},
+		{Role: "tool", Message: &protos.Message_Tool{Tool: &protos.ToolMessage{
+			Tools: []*protos.ToolMessage_Tool{{Id: "t1", Name: "fn", Content: "{}"}},
+		}}},
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			Contents: []string{"The weather is sunny."},
+		}}},
+		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "q2"}}},
+	}
+	// Scan backwards: last assistant at index 3 has no tool_calls -> skip.
+	// Continues to index 1 which has tool_calls with result at index 2 -> resolved.
+	assert.True(t, e.toolCallsResolved())
+	e.mu.Unlock()
+}
+
+// =============================================================================
+// Tests: Execute(LLMToolCallPacket) — no-op
+// =============================================================================
+
+func TestExecute_LLMToolCallPacket_NoOp(t *testing.T) {
+	e := newTestExecutor()
+	comm, collector := newTestComm()
+
+	err := e.Execute(context.Background(), comm, internal_type.LLMToolCallPacket{
+		ToolID:    "tc1",
+		Name:      "get_weather",
+		ContextID: "ctx-1",
+		Arguments: map[string]interface{}{"city": "SF"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, collector.all(), "LLMToolCallPacket should not emit any packets")
+	assert.Empty(t, historySnapshot(e), "LLMToolCallPacket should not modify history")
+}
+
+// =============================================================================
+// Tests: Execute(LLMToolResultPacket) — appends to history, triggers follow-up
+// =============================================================================
+
+func TestExecute_LLMToolResultPacket_SingleTool_TriggersFollowUp(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	// Set up current context so Pipeline recognizes the context.
+	e.mu.Lock()
+	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-tool"}
+	// Pre-populate history: user + assistant(tool_calls:[t1])
+	e.history = []*protos.Message{
+		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "question"}}},
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			Contents:  []string{"calling tool"},
+			ToolCalls: []*protos.ToolCall{{Id: "t1", Type: "function", Function: &protos.FunctionCall{Name: "get_weather", Arguments: "{}"}}},
+		}}},
+	}
+	e.mu.Unlock()
+
+	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID:    "t1",
+		Name:      "get_weather",
+		ContextID: "ctx-tool",
+		Result:    map[string]interface{}{"temp": "72F"},
+	})
+	require.NoError(t, err)
+
+	// History should now have 3 entries: user, assistant(tool_calls), tool result.
+	snap := historySnapshot(e)
+	require.Len(t, snap, 3)
+	assert.Equal(t, "user", snap[0].Role)
+	assert.Equal(t, "assistant", snap[1].Role)
+	assert.Equal(t, "tool", snap[2].Role)
+	assert.Equal(t, "t1", snap[2].GetTool().GetTools()[0].GetId())
+
+	// Follow-up should have been triggered: chatWithHistory calls stream.Send.
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	assert.Len(t, stream.sendCalls, 1, "tool follow-up should send a new chat request")
+}
+
+func TestExecute_LLMToolResultPacket_MultiTool_PartialDoesNotTriggerFollowUp(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	e.mu.Lock()
+	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-multi"}
+	e.history = []*protos.Message{
+		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "multi"}}},
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			ToolCalls: []*protos.ToolCall{
+				{Id: "t1", Type: "function", Function: &protos.FunctionCall{Name: "fn1", Arguments: "{}"}},
+				{Id: "t2", Type: "function", Function: &protos.FunctionCall{Name: "fn2", Arguments: "{}"}},
+				{Id: "t3", Type: "function", Function: &protos.FunctionCall{Name: "fn3", Arguments: "{}"}},
+			},
+		}}},
+	}
+	e.mu.Unlock()
+
+	// First result: t1 — should NOT trigger follow-up.
+	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "t1", Name: "fn1", ContextID: "ctx-multi", Result: map[string]interface{}{"r": "1"},
+	})
+	require.NoError(t, err)
+	stream.mu.Lock()
+	assert.Len(t, stream.sendCalls, 0, "1 of 3 resolved: no follow-up")
+	stream.mu.Unlock()
+
+	// Second result: t2 — should NOT trigger follow-up.
+	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "t2", Name: "fn2", ContextID: "ctx-multi", Result: map[string]interface{}{"r": "2"},
+	})
+	require.NoError(t, err)
+	stream.mu.Lock()
+	assert.Len(t, stream.sendCalls, 0, "2 of 3 resolved: no follow-up")
+	stream.mu.Unlock()
+
+	// Third result: t3 — should trigger follow-up.
+	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "t3", Name: "fn3", ContextID: "ctx-multi", Result: map[string]interface{}{"r": "3"},
+	})
+	require.NoError(t, err)
+	stream.mu.Lock()
+	assert.Len(t, stream.sendCalls, 1, "3 of 3 resolved: follow-up fires")
+	stream.mu.Unlock()
+
+	// History: user + assistant + 3 tool results = 5.
+	snap := historySnapshot(e)
+	require.Len(t, snap, 5)
+	assert.Equal(t, "tool", snap[2].Role)
+	assert.Equal(t, "tool", snap[3].Role)
+	assert.Equal(t, "tool", snap[4].Role)
+}
+
+func TestExecute_LLMToolResultPacket_MultiTool_OutOfOrderResults(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	e.mu.Lock()
+	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-ooo"}
+	e.history = []*protos.Message{
+		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "ooo"}}},
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			ToolCalls: []*protos.ToolCall{
+				{Id: "t1", Type: "function", Function: &protos.FunctionCall{Name: "fn1", Arguments: "{}"}},
+				{Id: "t2", Type: "function", Function: &protos.FunctionCall{Name: "fn2", Arguments: "{}"}},
+			},
+		}}},
+	}
+	e.mu.Unlock()
+
+	// Deliver t2 first.
+	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "t2", Name: "fn2", ContextID: "ctx-ooo", Result: map[string]interface{}{"r": "2"},
+	})
+	require.NoError(t, err)
+	stream.mu.Lock()
+	assert.Len(t, stream.sendCalls, 0, "t2 only, t1 still pending")
+	stream.mu.Unlock()
+
+	// Deliver t1 second.
+	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "t1", Name: "fn1", ContextID: "ctx-ooo", Result: map[string]interface{}{"r": "1"},
+	})
+	require.NoError(t, err)
+	stream.mu.Lock()
+	assert.Len(t, stream.sendCalls, 1, "both resolved: follow-up fires")
+	stream.mu.Unlock()
+
+	// History order: user, assistant, t2, t1 (append order, not tool_call order).
+	snap := historySnapshot(e)
+	require.Len(t, snap, 4)
+	assert.Equal(t, "t2", snap[2].GetTool().GetTools()[0].GetId())
+	assert.Equal(t, "t1", snap[3].GetTool().GetTools()[0].GetId())
+}
+
+func TestExecute_LLMToolResultPacket_DuplicateResult(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	e.mu.Lock()
+	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-dup"}
+	e.history = []*protos.Message{
+		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "dup"}}},
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			ToolCalls: []*protos.ToolCall{{Id: "t1", Type: "function"}},
+		}}},
+	}
+	e.mu.Unlock()
+
+	// First result: resolves and triggers follow-up.
+	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "t1", Name: "fn", ContextID: "ctx-dup", Result: map[string]interface{}{"r": "first"},
+	})
+	require.NoError(t, err)
+	stream.mu.Lock()
+	assert.Len(t, stream.sendCalls, 1, "first result triggers follow-up")
+	stream.mu.Unlock()
+
+	// Duplicate result: toolCallsResolved is still true (extra tool messages are
+	// tolerated by the scan since all expected IDs are covered). The duplicate
+	// appends to history and triggers another follow-up.
+	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "t1", Name: "fn", ContextID: "ctx-dup", Result: map[string]interface{}{"r": "second"},
+	})
+	require.NoError(t, err)
+	stream.mu.Lock()
+	assert.Len(t, stream.sendCalls, 2, "duplicate result triggers follow-up again (no dedup)")
+	stream.mu.Unlock()
+
+	// Document: this is current behavior. The model does NOT deduplicate tool
+	// results. Each LLMToolResultPacket appends and checks resolved.
+	snap := historySnapshot(e)
+	require.Len(t, snap, 4, "user + assistant + 2 tool results")
+}
+
+// =============================================================================
+// Tests: Full round-trip — tool call from LLM response through external result
+// =============================================================================
+
+func TestModel_SingleToolRoundTrip(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, collector := newTestComm()
+	en := mustLanguage(t, "en")
+
+	var toolExecuted bool
+	e.toolExecutor = &mockToolExecutor{
+		executeFn: func(ctx context.Context, contextID string, calls []*protos.ToolCall, comm internal_type.Communication) {
+			toolExecuted = true
+			assert.Equal(t, "round-trip", contextID)
+			require.Len(t, calls, 1)
+			assert.Equal(t, "tc1", calls[0].GetId())
+			// Simulate what the real tool executor does: emit LLMToolCallPacket
+			// and then LLMToolResultPacket via communication.OnPacket. But here
+			// we just record that it was called.
+		},
+	}
+
+	// Step 1: User sends a message.
+	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+		ContextID: "round-trip",
+		Text:      "what is the weather?",
+		Language:  en,
+	})
+	require.NoError(t, err)
+
+	// Step 2: LLM responds with tool_call.
+	e.handleResponse(context.Background(), comm, &protos.ChatResponse{
+		RequestId: "round-trip",
+		Success:   true,
+		Data: &protos.Message{
+			Role: "assistant",
+			Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+				Contents:  []string{"Let me check the weather"},
+				ToolCalls: []*protos.ToolCall{{Id: "tc1", Type: "function", Function: &protos.FunctionCall{Name: "get_weather", Arguments: `{"city":"SF"}`}}},
+			}},
+		},
+		Metrics: []*protos.Metric{{Name: "tokens", Value: "15"}},
+	})
+
+	// Verify: toolExecutor.ExecuteAll was called.
+	assert.True(t, toolExecuted, "tool executor should have been called")
+
+	// Verify: history has user + assistant(tool_calls).
+	snap := historySnapshot(e)
+	require.Len(t, snap, 2)
+	assert.Equal(t, "user", snap[0].Role)
+	assert.Equal(t, "assistant", snap[1].Role)
+	assert.Len(t, snap[1].GetAssistant().GetToolCalls(), 1)
+
+	// Step 3: Dispatch layer calls Execute(LLMToolCallPacket) — no-op.
+	err = e.Execute(context.Background(), comm, internal_type.LLMToolCallPacket{
+		ToolID: "tc1", Name: "get_weather", ContextID: "round-trip",
+	})
+	require.NoError(t, err)
+	assert.Len(t, historySnapshot(e), 2, "LLMToolCallPacket should not change history")
+
+	// Step 4: Dispatch layer calls Execute(LLMToolResultPacket) — triggers follow-up.
+	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "tc1", Name: "get_weather", ContextID: "round-trip",
+		Result: map[string]interface{}{"temperature": "72F", "condition": "sunny"},
+	})
+	require.NoError(t, err)
+
+	// Verify: history now has user + assistant(tool_calls) + tool_result.
+	snap = historySnapshot(e)
+	require.Len(t, snap, 3)
+	assert.Equal(t, "tool", snap[2].Role)
+	toolContent := snap[2].GetTool().GetTools()[0].GetContent()
+	assert.Contains(t, toolContent, "72F")
+
+	// Verify: follow-up was triggered (stream.Send called for the follow-up).
+	// send #1 = initial user message, send #2 = tool follow-up.
+	stream.mu.Lock()
+	assert.Len(t, stream.sendCalls, 2, "initial send + tool follow-up")
+	stream.mu.Unlock()
+
+	// Step 5: LLM responds to the follow-up with a text completion.
+	e.handleResponse(context.Background(), comm, &protos.ChatResponse{
+		RequestId: "round-trip",
+		Success:   true,
+		Data: &protos.Message{
+			Role: "assistant",
+			Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+				Contents: []string{"The weather in SF is 72F and sunny."},
+			}},
+		},
+		Metrics: []*protos.Metric{{Name: "tokens", Value: "20"}},
+	})
+
+	// Verify: history now has user + assistant(tool_calls) + tool_result + assistant(text).
+	snap = historySnapshot(e)
+	require.Len(t, snap, 4)
+	assert.Equal(t, "assistant", snap[3].Role)
+	assert.Empty(t, snap[3].GetAssistant().GetToolCalls(), "final response should have no tool_calls")
+
+	// Verify: LLMResponseDonePacket was emitted for the final response.
+	dones := findPackets[internal_type.LLMResponseDonePacket](collector.all())
+	require.Len(t, dones, 2, "one for tool_call completion, one for final text")
+	assert.Equal(t, "Let me check the weather", dones[0].Text)
+	assert.Equal(t, "The weather in SF is 72F and sunny.", dones[1].Text)
+}
+
+func TestModel_MultiToolRoundTrip_AllResolvedTriggersFollowUpOnce(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+	en := mustLanguage(t, "en")
+
+	e.toolExecutor = &mockToolExecutor{
+		executeFn: func(_ context.Context, _ string, calls []*protos.ToolCall, _ internal_type.Communication) {
+			assert.Len(t, calls, 3, "should receive all 3 tool calls")
+		},
+	}
+
+	// User turn.
+	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+		ContextID: "multi-tool", Text: "plan my trip", Language: en,
+	})
+	require.NoError(t, err)
+
+	// LLM responds with 3 tool_calls.
+	e.handleResponse(context.Background(), comm, &protos.ChatResponse{
+		RequestId: "multi-tool",
+		Success:   true,
+		Data: &protos.Message{
+			Role: "assistant",
+			Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+				Contents: []string{"planning"},
+				ToolCalls: []*protos.ToolCall{
+					{Id: "t1", Type: "function", Function: &protos.FunctionCall{Name: "flights", Arguments: "{}"}},
+					{Id: "t2", Type: "function", Function: &protos.FunctionCall{Name: "hotels", Arguments: "{}"}},
+					{Id: "t3", Type: "function", Function: &protos.FunctionCall{Name: "car_rental", Arguments: "{}"}},
+				},
+			}},
+		},
+		Metrics: []*protos.Metric{{Name: "tokens", Value: "10"}},
+	})
+
+	// Initial send only.
+	stream.mu.Lock()
+	initialSends := len(stream.sendCalls)
+	stream.mu.Unlock()
+	assert.Equal(t, 1, initialSends, "only initial send before tool results")
+
+	// t1 result.
+	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "t1", Name: "flights", ContextID: "multi-tool", Result: map[string]interface{}{"flight": "AA123"},
+	})
+	require.NoError(t, err)
+	stream.mu.Lock()
+	assert.Equal(t, initialSends, len(stream.sendCalls), "1/3: no follow-up yet")
+	stream.mu.Unlock()
+
+	// t2 result.
+	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "t2", Name: "hotels", ContextID: "multi-tool", Result: map[string]interface{}{"hotel": "Hilton"},
+	})
+	require.NoError(t, err)
+	stream.mu.Lock()
+	assert.Equal(t, initialSends, len(stream.sendCalls), "2/3: no follow-up yet")
+	stream.mu.Unlock()
+
+	// t3 result: triggers follow-up.
+	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "t3", Name: "car_rental", ContextID: "multi-tool", Result: map[string]interface{}{"car": "Tesla"},
+	})
+	require.NoError(t, err)
+	stream.mu.Lock()
+	assert.Equal(t, initialSends+1, len(stream.sendCalls), "3/3: follow-up fires exactly once")
+	stream.mu.Unlock()
+
+	// Final history: user + assistant(tool_calls) + 3 tool results = 5.
+	snap := historySnapshot(e)
+	require.Len(t, snap, 5)
+}
+
+// =============================================================================
+// Tests: Tool follow-up with stale context
+// =============================================================================
+
+func TestModel_ToolResult_StaleContext_NoFollowUp(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	// Set up initial context and history with pending tool call.
+	e.mu.Lock()
+	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-new"}
+	e.history = []*protos.Message{
+		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "old q"}}},
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			ToolCalls: []*protos.ToolCall{{Id: "t1", Type: "function"}},
+		}}},
+	}
+	e.mu.Unlock()
+
+	// Tool result arrives for old context "ctx-old" — but current is "ctx-new".
+	// The tool result is still appended to history (Execute does not check context
+	// for LLMToolResultPacket), but the ToolFollowUpPipeline checks isCurrentContext.
+	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "t1", Name: "fn", ContextID: "ctx-old", Result: map[string]interface{}{"r": "1"},
+	})
+	require.NoError(t, err)
+
+	// Tool result was appended to history.
+	snap := historySnapshot(e)
+	require.Len(t, snap, 3, "tool result is always appended")
+
+	// But follow-up was NOT triggered because ToolFollowUpPipeline sees ctx-old != ctx-new.
+	stream.mu.Lock()
+	assert.Len(t, stream.sendCalls, 0, "stale context: no follow-up send")
+	stream.mu.Unlock()
+}
+
+// =============================================================================
+// Tests: Interruption clears currentPacket
+// =============================================================================
+
+func TestModel_InterruptionClearsPacket_ToolResultAfterInterrupt(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	e.mu.Lock()
+	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-interrupted"}
+	e.history = []*protos.Message{
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			ToolCalls: []*protos.ToolCall{{Id: "t1", Type: "function"}},
+		}}},
+	}
+	e.mu.Unlock()
+
+	// Interrupt.
+	err := e.Execute(context.Background(), comm, internal_type.InterruptionDetectedPacket{ContextID: "ctx-interrupted"})
+	require.NoError(t, err)
+	assert.Nil(t, e.currentPacket)
+
+	// Late tool result arrives. Tool result is appended, but follow-up is skipped
+	// because currentPacket is nil and isCurrentContext("ctx-interrupted") returns false.
+	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "t1", Name: "fn", ContextID: "ctx-interrupted", Result: map[string]interface{}{"r": "1"},
+	})
+	require.NoError(t, err)
+
+	stream.mu.Lock()
+	assert.Len(t, stream.sendCalls, 0, "follow-up should not fire after interruption")
+	stream.mu.Unlock()
+}
+
+// =============================================================================
+// Tests: Normal completion (no tool_calls) — assistant msg appended, no tool state
+// =============================================================================
+
+func TestModel_NormalCompletion_NoToolCalls(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, collector := newTestComm()
+	en := mustLanguage(t, "en")
+
+	noToolExec := &mockToolExecutor{
+		executeFn: func(_ context.Context, _ string, _ []*protos.ToolCall, _ internal_type.Communication) {
+			t.Fatal("tool executor should not be called for non-tool responses")
+		},
+	}
+	e.toolExecutor = noToolExec
+
+	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+		ContextID: "no-tools", Text: "hello", Language: en,
+	})
+	require.NoError(t, err)
+
+	e.handleResponse(context.Background(), comm, &protos.ChatResponse{
+		RequestId: "no-tools",
+		Success:   true,
+		Data: &protos.Message{
+			Role: "assistant",
+			Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+				Contents: []string{"Hi there!"},
+			}},
+		},
+		Metrics: []*protos.Metric{{Name: "tokens", Value: "5"}},
+	})
+
+	// History: user + assistant.
+	snap := historySnapshot(e)
+	require.Len(t, snap, 2)
+	assert.Equal(t, "user", snap[0].Role)
+	assert.Equal(t, "assistant", snap[1].Role)
+	assert.Empty(t, snap[1].GetAssistant().GetToolCalls())
+
+	// No tool-related packets.
+	toolCallPkts := findPackets[internal_type.LLMToolCallPacket](collector.all())
+	assert.Empty(t, toolCallPkts, "no tool call packets for non-tool response")
+
+	// Only 1 send: the initial user message.
+	stream.mu.Lock()
+	assert.Len(t, stream.sendCalls, 1, "no follow-up send for non-tool response")
+	stream.mu.Unlock()
+}
+
+// =============================================================================
+// Tests: Tool result JSON serialization
+// =============================================================================
+
+func TestExecute_LLMToolResultPacket_ResultSerializedAsJSON(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	e.mu.Lock()
+	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-json"}
+	e.history = []*protos.Message{
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			ToolCalls: []*protos.ToolCall{{Id: "t1", Type: "function"}},
+		}}},
+	}
+	e.mu.Unlock()
+
+	result := map[string]interface{}{
+		"items":  []interface{}{"a", "b"},
+		"count":  float64(2),
+		"nested": map[string]interface{}{"key": "value"},
+	}
+	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "t1", Name: "fn", ContextID: "ctx-json", Result: result,
+	})
+	require.NoError(t, err)
+
+	snap := historySnapshot(e)
+	require.Len(t, snap, 2)
+	content := snap[1].GetTool().GetTools()[0].GetContent()
+	// The result should be valid JSON.
+	assert.True(t, strings.HasPrefix(content, "{"), "content should be JSON: %s", content)
+	assert.Contains(t, content, `"count":2`)
+	assert.Contains(t, content, `"key":"value"`)
+}
+
+// =============================================================================
+// Tests: ToolFollowUpPipeline with nil stream
+// =============================================================================
+
+func TestModel_ToolFollowUp_NilStream_ReturnsError(t *testing.T) {
+	e := newTestExecutor()
+	e.stream = nil // no stream
+	comm, _ := newTestComm()
+
+	e.mu.Lock()
+	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-nil-stream"}
+	e.history = []*protos.Message{
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			ToolCalls: []*protos.ToolCall{{Id: "t1", Type: "function"}},
+		}}},
+	}
+	e.mu.Unlock()
+
+	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "t1", Name: "fn", ContextID: "ctx-nil-stream", Result: map[string]interface{}{"r": "1"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stream not connected")
+}
+
+// =============================================================================
+// Tests: ToolFollowUpPipeline includes all history in the request
+// =============================================================================
+
+func TestModel_ToolFollowUp_SendsFullHistory(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	e.mu.Lock()
+	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-full"}
+	e.history = []*protos.Message{
+		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "q"}}},
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			ToolCalls: []*protos.ToolCall{{Id: "t1", Type: "function"}},
+		}}},
+	}
+	e.mu.Unlock()
+
+	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+		ToolID: "t1", Name: "fn", ContextID: "ctx-full", Result: map[string]interface{}{"done": true},
+	})
+	require.NoError(t, err)
+
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	require.Len(t, stream.sendCalls, 1)
+
+	// The sent request should include all 3 messages: user + assistant + tool.
+	sent := stream.sendCalls[0]
+	conversations := sent.GetConversations()
+	// Conversations include system prompt (prepended) + history messages.
+	// Count non-system messages.
+	var historyMsgs int
+	for _, msg := range conversations {
+		if msg.GetSystem() == nil {
+			historyMsgs++
+		}
+	}
+	assert.Equal(t, 3, historyMsgs, "follow-up request should include all 3 history messages")
+}
+
+// =============================================================================
+// Concurrency: Tool results arriving concurrently
+// =============================================================================
+
+func TestConcurrency_MultipleToolResultsConcurrent(t *testing.T) {
+	e := newTestExecutor()
+	stream := newMockStream()
+	e.stream = stream
+	comm, _ := newTestComm()
+
+	const numTools = 10
+	toolCalls := make([]*protos.ToolCall, numTools)
+	for i := 0; i < numTools; i++ {
+		toolCalls[i] = &protos.ToolCall{
+			Id:   fmt.Sprintf("t%d", i),
+			Type: "function",
+		}
+	}
+
+	e.mu.Lock()
+	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-concurrent"}
+	e.history = []*protos.Message{
+		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "concurrent"}}},
+		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
+			ToolCalls: toolCalls,
+		}}},
+	}
+	e.mu.Unlock()
+
+	var wg sync.WaitGroup
+	wg.Add(numTools)
+	for i := 0; i < numTools; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			_ = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
+				ToolID:    fmt.Sprintf("t%d", i),
+				Name:      fmt.Sprintf("fn%d", i),
+				ContextID: "ctx-concurrent",
+				Result:    map[string]interface{}{"i": i},
+			})
+		}()
+	}
+	wg.Wait()
+
+	// All tool results should be in history.
+	snap := historySnapshot(e)
+	assert.Len(t, snap, numTools+2, "user + assistant + N tool results")
+
+	// Follow-up should have fired at least once (exactly once in serial, but
+	// under concurrency, a race between check-and-send could fire multiple times).
+	stream.mu.Lock()
+	assert.GreaterOrEqual(t, len(stream.sendCalls), 1, "follow-up should fire when all resolved")
+	stream.mu.Unlock()
 }

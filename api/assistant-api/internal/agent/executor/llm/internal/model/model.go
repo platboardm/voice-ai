@@ -76,8 +76,7 @@ var _ internal_agent_executor.AssistantExecutor = (*modelAssistantExecutor)(nil)
 type modelAssistantExecutor struct {
 	logger commons.Logger
 
-	// toolExecutor handles tool calls requested by the LLM and appends
-	// results to history atomically with the assistant message.
+	// packets (LLMToolCallPacket, LLMToolResultPacket, DirectivePacket).
 	toolExecutor internal_agent_executor.ToolExecutor
 
 	// providerCredential is fetched on Initialize and used for all chat
@@ -92,17 +91,8 @@ type modelAssistantExecutor struct {
 	// (to send) and the listener goroutine (to receive); synchronized via mu.
 	stream grpc.BidiStreamingClient[protos.ChatRequest, protos.ChatResponse]
 
-	// mu guards currentPacket, history, stream, pendingTools, and turn timing fields.
 	mu            sync.RWMutex
 	currentPacket *internal_type.NormalizedUserTextPacket
-
-	// pendingTools tracks how many tool results are expected for the current turn.
-	// Set by stageToolFollowUp, decremented by Execute(LLMToolResultPacket).
-	// ToolFollowUpPipeline fires only when pendingTools reaches 0.
-	pendingTools     int
-	pendingToolCtxID string
-	pendingToolMsg   *protos.Message
-	toolMsgAppended  bool
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -214,17 +204,12 @@ func (e *modelAssistantExecutor) Execute(ctx context.Context, communication inte
 			},
 		})
 	case internal_type.LLMToolCallPacket:
-		e.mu.Lock()
-		if !e.toolMsgAppended && e.pendingToolMsg != nil {
-			e.history = append(e.history, e.pendingToolMsg)
-			e.toolMsgAppended = true
-		}
-		e.mu.Unlock()
 		return nil
 
 	case internal_type.LLMToolResultPacket:
 		resultJSON, _ := json.Marshal(p.Result)
-		toolMsg := &protos.Message{
+		e.mu.Lock()
+		e.history = append(e.history, &protos.Message{
 			Role: "tool",
 			Message: &protos.Message_Tool{
 				Tool: &protos.ToolMessage{
@@ -233,21 +218,14 @@ func (e *modelAssistantExecutor) Execute(ctx context.Context, communication inte
 					},
 				},
 			},
-		}
-		if err := e.Pipeline(ctx, communication, LocalHistoryPipeline{Message: toolMsg}); err != nil {
-			return err
-		}
-
-		e.mu.Lock()
-		e.pendingTools--
-		remaining := e.pendingTools
-		ctxID := e.pendingToolCtxID
+		})
+		resolved := e.toolCallsResolved()
 		e.mu.Unlock()
 
-		if remaining > 0 {
+		if !resolved {
 			return nil
 		}
-		return e.Pipeline(ctx, communication, ToolFollowUpPipeline{ContextID: ctxID})
+		return e.Pipeline(ctx, communication, ToolFollowUpPipeline{ContextID: p.ContextID})
 
 	case internal_type.InterruptionDetectedPacket:
 		e.mu.Lock()
@@ -595,14 +573,11 @@ func (e *modelAssistantExecutor) stageEmitResponseUpstream(ctx context.Context, 
 // (for non-tool completions), emits DonePacket, completion event, and metrics.
 func (e *modelAssistantExecutor) emitCompletion(ctx context.Context, communication internal_type.Communication, pipeline LLMResponsePipeline) error {
 	contextID := pipeline.Response.GetRequestId()
-	hasToolCalls := len(pipeline.Output.GetAssistant().GetToolCalls()) > 0
 	responseText := strings.Join(pipeline.Output.GetAssistant().GetContents(), "")
 
-	if !hasToolCalls {
-		e.mu.Lock()
-		e.history = append(e.history, pipeline.Output)
-		e.mu.Unlock()
-	}
+	e.mu.Lock()
+	e.history = append(e.history, pipeline.Output)
+	e.mu.Unlock()
 
 	communication.OnPacket(ctx,
 		internal_type.LLMResponseDonePacket{
@@ -698,17 +673,30 @@ func (e *modelAssistantExecutor) stageToolFollowUp(ctx context.Context, communic
 	if len(toolCalls) == 0 {
 		return nil
 	}
-	contextID := pipeline.Response.GetRequestId()
-
-	e.mu.Lock()
-	e.pendingTools = len(toolCalls)
-	e.pendingToolCtxID = contextID
-	e.pendingToolMsg = pipeline.Output
-	e.toolMsgAppended = false
-	e.mu.Unlock()
-
-	e.toolExecutor.ExecuteAll(ctx, contextID, toolCalls, communication)
+	e.toolExecutor.ExecuteAll(ctx, pipeline.Response.GetRequestId(), toolCalls, communication)
 	return nil
+}
+
+// toolCallsResolved checks if the last assistant message with tool_calls has
+// all its results in history. Must be called with mu held.
+func (e *modelAssistantExecutor) toolCallsResolved() bool {
+	for i := len(e.history) - 1; i >= 0; i-- {
+		if ast := e.history[i].GetAssistant(); ast != nil && len(ast.GetToolCalls()) > 0 {
+			pending := make(map[string]bool, len(ast.GetToolCalls()))
+			for _, tc := range ast.GetToolCalls() {
+				pending[tc.GetId()] = true
+			}
+			for j := i + 1; j < len(e.history); j++ {
+				if tool := e.history[j].GetTool(); tool != nil {
+					for _, t := range tool.GetTools() {
+						delete(pending, t.GetId())
+					}
+				}
+			}
+			return len(pending) == 0
+		}
+	}
+	return true
 }
 
 // =============================================================================
