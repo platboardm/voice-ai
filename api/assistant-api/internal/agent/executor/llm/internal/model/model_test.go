@@ -310,6 +310,17 @@ func findPackets[T internal_type.Packet](pkts []internal_type.Packet) []T {
 	return out
 }
 
+// findActionToolCalls returns LLMToolCallPackets that have a non-UNSPECIFIED Action.
+func findActionToolCalls(pkts []internal_type.Packet) []internal_type.LLMToolCallPacket {
+	var out []internal_type.LLMToolCallPacket
+	for _, p := range pkts {
+		if tc, ok := p.(internal_type.LLMToolCallPacket); ok && tc.Action != protos.ToolCallAction_TOOL_CALL_ACTION_UNSPECIFIED {
+			out = append(out, tc)
+		}
+	}
+	return out
+}
+
 func TestBuildAssistantArgumentationContext_IncludesNamespaces(t *testing.T) {
 	e := newTestExecutor()
 	comm, _ := newTestComm()
@@ -1328,9 +1339,9 @@ func TestListen_RecvEOF(t *testing.T) {
 		t.Fatal("listen did not exit on EOF")
 	}
 
-	dirs := findPackets[internal_type.DirectivePacket](collector.all())
+	dirs := findActionToolCalls(collector.all())
 	require.Len(t, dirs, 1)
-	assert.Equal(t, protos.ConversationDirective_END_CONVERSATION, dirs[0].Directive)
+	assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION, dirs[0].Action)
 	assert.Equal(t, "server closed connection", dirs[0].Arguments["reason"])
 }
 
@@ -1570,7 +1581,7 @@ func TestListen_ExitsCleanlyOnClose(t *testing.T) {
 		t.Fatal("listener did not exit after context cancellation")
 	}
 
-	dirs := findPackets[internal_type.DirectivePacket](collector.all())
+	dirs := findActionToolCalls(collector.all())
 	assert.Empty(t, dirs, "END_CONVERSATION must not be dispatched when context is cancelled")
 }
 
@@ -1868,12 +1879,12 @@ func TestE2E_ListenProcessesResponsesAndExitsOnEOF(t *testing.T) {
 	pkts := collector.all()
 	deltas := findPackets[internal_type.LLMResponseDeltaPacket](pkts)
 	dones := findPackets[internal_type.LLMResponseDonePacket](pkts)
-	dirs := findPackets[internal_type.DirectivePacket](pkts)
+	dirs := findActionToolCalls(pkts)
 
 	assert.Len(t, deltas, 1)
 	assert.Len(t, dones, 1)
 	require.Len(t, dirs, 1)
-	assert.Equal(t, protos.ConversationDirective_END_CONVERSATION, dirs[0].Directive)
+	assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION, dirs[0].Action)
 }
 
 // =============================================================================
@@ -2628,7 +2639,7 @@ func TestExecute_LLMToolCallPacket_NoOp(t *testing.T) {
 		ToolID:    "tc1",
 		Name:      "get_weather",
 		ContextID: "ctx-1",
-		Arguments: map[string]interface{}{"city": "SF"},
+		Arguments: map[string]string{"city": "SF"},
 	})
 	require.NoError(t, err)
 	assert.Empty(t, collector.all(), "LLMToolCallPacket should not emit any packets")
@@ -2662,7 +2673,7 @@ func TestExecute_LLMToolResultPacket_SingleTool_TriggersFollowUp(t *testing.T) {
 		ToolID:    "t1",
 		Name:      "get_weather",
 		ContextID: "ctx-tool",
-		Result:    map[string]interface{}{"temp": "72F"},
+		Result:    map[string]string{"temp": "72F"},
 	})
 	require.NoError(t, err)
 
@@ -2702,7 +2713,7 @@ func TestExecute_LLMToolResultPacket_MultiTool_PartialDoesNotTriggerFollowUp(t *
 
 	// First result: t1 — should NOT trigger follow-up.
 	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
-		ToolID: "t1", Name: "fn1", ContextID: "ctx-multi", Result: map[string]interface{}{"r": "1"},
+		ToolID: "t1", Name: "fn1", ContextID: "ctx-multi", Result: map[string]string{"r": "1"},
 	})
 	require.NoError(t, err)
 	stream.mu.Lock()
@@ -2711,7 +2722,7 @@ func TestExecute_LLMToolResultPacket_MultiTool_PartialDoesNotTriggerFollowUp(t *
 
 	// Second result: t2 — should NOT trigger follow-up.
 	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
-		ToolID: "t2", Name: "fn2", ContextID: "ctx-multi", Result: map[string]interface{}{"r": "2"},
+		ToolID: "t2", Name: "fn2", ContextID: "ctx-multi", Result: map[string]string{"r": "2"},
 	})
 	require.NoError(t, err)
 	stream.mu.Lock()
@@ -2720,7 +2731,7 @@ func TestExecute_LLMToolResultPacket_MultiTool_PartialDoesNotTriggerFollowUp(t *
 
 	// Third result: t3 — should trigger follow-up.
 	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
-		ToolID: "t3", Name: "fn3", ContextID: "ctx-multi", Result: map[string]interface{}{"r": "3"},
+		ToolID: "t3", Name: "fn3", ContextID: "ctx-multi", Result: map[string]string{"r": "3"},
 	})
 	require.NoError(t, err)
 	stream.mu.Lock()
@@ -2756,7 +2767,7 @@ func TestExecute_LLMToolResultPacket_MultiTool_OutOfOrderResults(t *testing.T) {
 
 	// Deliver t2 first.
 	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
-		ToolID: "t2", Name: "fn2", ContextID: "ctx-ooo", Result: map[string]interface{}{"r": "2"},
+		ToolID: "t2", Name: "fn2", ContextID: "ctx-ooo", Result: map[string]string{"r": "2"},
 	})
 	require.NoError(t, err)
 	stream.mu.Lock()
@@ -2765,7 +2776,7 @@ func TestExecute_LLMToolResultPacket_MultiTool_OutOfOrderResults(t *testing.T) {
 
 	// Deliver t1 second.
 	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
-		ToolID: "t1", Name: "fn1", ContextID: "ctx-ooo", Result: map[string]interface{}{"r": "1"},
+		ToolID: "t1", Name: "fn1", ContextID: "ctx-ooo", Result: map[string]string{"r": "1"},
 	})
 	require.NoError(t, err)
 	stream.mu.Lock()
@@ -2797,7 +2808,7 @@ func TestExecute_LLMToolResultPacket_DuplicateResult(t *testing.T) {
 
 	// First result: resolves and triggers follow-up.
 	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
-		ToolID: "t1", Name: "fn", ContextID: "ctx-dup", Result: map[string]interface{}{"r": "first"},
+		ToolID: "t1", Name: "fn", ContextID: "ctx-dup", Result: map[string]string{"r": "first"},
 	})
 	require.NoError(t, err)
 	stream.mu.Lock()
@@ -2808,7 +2819,7 @@ func TestExecute_LLMToolResultPacket_DuplicateResult(t *testing.T) {
 	// tolerated by the scan since all expected IDs are covered). The duplicate
 	// appends to history and triggers another follow-up.
 	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
-		ToolID: "t1", Name: "fn", ContextID: "ctx-dup", Result: map[string]interface{}{"r": "second"},
+		ToolID: "t1", Name: "fn", ContextID: "ctx-dup", Result: map[string]string{"r": "second"},
 	})
 	require.NoError(t, err)
 	stream.mu.Lock()
@@ -2887,7 +2898,7 @@ func TestModel_SingleToolRoundTrip(t *testing.T) {
 	// Step 4: Dispatch layer calls Execute(LLMToolResultPacket) — triggers follow-up.
 	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
 		ToolID: "tc1", Name: "get_weather", ContextID: "round-trip",
-		Result: map[string]interface{}{"temperature": "72F", "condition": "sunny"},
+		Result: map[string]string{"temperature": "72F", "condition": "sunny"},
 	})
 	require.NoError(t, err)
 
@@ -2975,7 +2986,7 @@ func TestModel_MultiToolRoundTrip_AllResolvedTriggersFollowUpOnce(t *testing.T) 
 
 	// t1 result.
 	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
-		ToolID: "t1", Name: "flights", ContextID: "multi-tool", Result: map[string]interface{}{"flight": "AA123"},
+		ToolID: "t1", Name: "flights", ContextID: "multi-tool", Result: map[string]string{"flight": "AA123"},
 	})
 	require.NoError(t, err)
 	stream.mu.Lock()
@@ -2984,7 +2995,7 @@ func TestModel_MultiToolRoundTrip_AllResolvedTriggersFollowUpOnce(t *testing.T) 
 
 	// t2 result.
 	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
-		ToolID: "t2", Name: "hotels", ContextID: "multi-tool", Result: map[string]interface{}{"hotel": "Hilton"},
+		ToolID: "t2", Name: "hotels", ContextID: "multi-tool", Result: map[string]string{"hotel": "Hilton"},
 	})
 	require.NoError(t, err)
 	stream.mu.Lock()
@@ -2993,7 +3004,7 @@ func TestModel_MultiToolRoundTrip_AllResolvedTriggersFollowUpOnce(t *testing.T) 
 
 	// t3 result: triggers follow-up.
 	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
-		ToolID: "t3", Name: "car_rental", ContextID: "multi-tool", Result: map[string]interface{}{"car": "Tesla"},
+		ToolID: "t3", Name: "car_rental", ContextID: "multi-tool", Result: map[string]string{"car": "Tesla"},
 	})
 	require.NoError(t, err)
 	stream.mu.Lock()
@@ -3030,7 +3041,7 @@ func TestModel_ToolResult_StaleContext_NoFollowUp(t *testing.T) {
 	// The tool result is still appended to history (Execute does not check context
 	// for LLMToolResultPacket), but the ToolFollowUpPipeline checks isCurrentContext.
 	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
-		ToolID: "t1", Name: "fn", ContextID: "ctx-old", Result: map[string]interface{}{"r": "1"},
+		ToolID: "t1", Name: "fn", ContextID: "ctx-old", Result: map[string]string{"r": "1"},
 	})
 	require.NoError(t, err)
 
@@ -3071,7 +3082,7 @@ func TestModel_InterruptionClearsPacket_ToolResultAfterInterrupt(t *testing.T) {
 	// Late tool result arrives. Tool result is appended, but follow-up is skipped
 	// because currentPacket is nil and isCurrentContext("ctx-interrupted") returns false.
 	err = e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
-		ToolID: "t1", Name: "fn", ContextID: "ctx-interrupted", Result: map[string]interface{}{"r": "1"},
+		ToolID: "t1", Name: "fn", ContextID: "ctx-interrupted", Result: map[string]string{"r": "1"},
 	})
 	require.NoError(t, err)
 
@@ -3151,10 +3162,10 @@ func TestExecute_LLMToolResultPacket_ResultSerializedAsJSON(t *testing.T) {
 	}
 	e.mu.Unlock()
 
-	result := map[string]interface{}{
-		"items":  []interface{}{"a", "b"},
-		"count":  float64(2),
-		"nested": map[string]interface{}{"key": "value"},
+	result := map[string]string{
+		"items":  `["a","b"]`,
+		"count":  "2",
+		"nested": `{"key":"value"}`,
 	}
 	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
 		ToolID: "t1", Name: "fn", ContextID: "ctx-json", Result: result,
@@ -3166,8 +3177,8 @@ func TestExecute_LLMToolResultPacket_ResultSerializedAsJSON(t *testing.T) {
 	content := snap[1].GetTool().GetTools()[0].GetContent()
 	// The result should be valid JSON.
 	assert.True(t, strings.HasPrefix(content, "{"), "content should be JSON: %s", content)
-	assert.Contains(t, content, `"count":2`)
-	assert.Contains(t, content, `"key":"value"`)
+	assert.Contains(t, content, `"count":"2"`)
+	assert.Contains(t, content, `"nested":"{\"key\":\"value\"}"`)
 }
 
 // =============================================================================
@@ -3189,7 +3200,7 @@ func TestModel_ToolFollowUp_NilStream_ReturnsError(t *testing.T) {
 	e.mu.Unlock()
 
 	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
-		ToolID: "t1", Name: "fn", ContextID: "ctx-nil-stream", Result: map[string]interface{}{"r": "1"},
+		ToolID: "t1", Name: "fn", ContextID: "ctx-nil-stream", Result: map[string]string{"r": "1"},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "stream not connected")
@@ -3216,7 +3227,7 @@ func TestModel_ToolFollowUp_SendsFullHistory(t *testing.T) {
 	e.mu.Unlock()
 
 	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
-		ToolID: "t1", Name: "fn", ContextID: "ctx-full", Result: map[string]interface{}{"done": true},
+		ToolID: "t1", Name: "fn", ContextID: "ctx-full", Result: map[string]string{"done": "true"},
 	})
 	require.NoError(t, err)
 
@@ -3277,7 +3288,7 @@ func TestConcurrency_MultipleToolResultsConcurrent(t *testing.T) {
 				ToolID:    fmt.Sprintf("t%d", i),
 				Name:      fmt.Sprintf("fn%d", i),
 				ContextID: "ctx-concurrent",
-				Result:    map[string]interface{}{"i": i},
+				Result:    map[string]string{"i": fmt.Sprintf("%d", i)},
 			})
 		}()
 	}

@@ -77,7 +77,7 @@ type ToolExecutor interface {
 	GetFunctionDefinitions() []*protos.FunctionDefinition
 
 	// ExecuteAll resolves and executes each tool call. Each tool pushes its
-	// own packets (LLMToolCallPacket, LLMToolResultPacket, DirectivePacket)
+	// own packets (LLMToolCallPacket, LLMToolResultPacket)
 	// via communication.OnPacket. Execution is concurrent per tool.
 	ExecuteAll(ctx context.Context, contextID string, calls []*protos.ToolCall, communication internal_type.Communication)
 

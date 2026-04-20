@@ -20,10 +20,8 @@ import (
 	internal_twilio "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/twilio/internal"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
-	rapida_utils "github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 	openapi "github.com/twilio/twilio-go/rest/api/v2010"
-	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -152,9 +150,9 @@ func (tws *twilioWebsocketStreamer) Send(response internal_type.Stream) error {
 				tws.Logger.Errorf("Error sending clear command:", err)
 			}
 		}
-	case *protos.ConversationDirective:
-		switch data.GetType() {
-		case protos.ConversationDirective_END_CONVERSATION:
+	case *protos.ConversationToolCall:
+		switch data.GetAction() {
+		case protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION:
 			if tws.GetConversationUuid() != "" {
 				client, err := twilioClient(tws.VaultCredential())
 				if err != nil {
@@ -171,22 +169,40 @@ func (tws *twilioWebsocketStreamer) Send(response internal_type.Stream) error {
 				}
 			}
 			tws.Cancel()
-		case protos.ConversationDirective_TRANSFER_CONVERSATION:
-			to := extractTransferTarget(data.GetArgs())
+		case protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION:
+			to := data.GetArgs()["to"]
 			if to == "" || tws.GetConversationUuid() == "" {
-				tws.Logger.Warnw("Transfer directive missing target or call ID")
+				tws.PushInput(&protos.ConversationToolCallResult{
+					Id:     data.GetId(),
+					ToolId: data.GetToolId(), Name: data.GetName(), Action: data.GetAction(),
+					Result: map[string]string{"status": "failed", "reason": "missing target or call ID"},
+				})
 				return nil
 			}
 			tws.Logger.Infow("Transferring Twilio call", "to", to)
 			client, err := twilioClient(tws.VaultCredential())
 			if err != nil {
-				tws.Logger.Errorf("Error creating Twilio client for transfer:", err)
+				tws.PushInput(&protos.ConversationToolCallResult{
+					Id:     data.GetId(),
+					ToolId: data.GetToolId(), Name: data.GetName(), Action: data.GetAction(),
+					Result: map[string]string{"status": "failed", "reason": fmt.Sprintf("twilio client error: %v", err)},
+				})
 				return nil
 			}
 			params := &openapi.UpdateCallParams{}
 			params.SetTwiml(fmt.Sprintf(`<Response><Dial>%s</Dial></Response>`, to))
 			if _, err := client.Api.UpdateCall(tws.GetConversationUuid(), params); err != nil {
-				tws.Logger.Errorf("Error transferring Twilio call:", err)
+				tws.PushInput(&protos.ConversationToolCallResult{
+					Id:     data.GetId(),
+					ToolId: data.GetToolId(), Name: data.GetName(), Action: data.GetAction(),
+					Result: map[string]string{"status": "failed", "reason": fmt.Sprintf("transfer failed: %v", err)},
+				})
+			} else {
+				tws.PushInput(&protos.ConversationToolCallResult{
+					Id:     data.GetId(),
+					ToolId: data.GetToolId(), Name: data.GetName(), Action: data.GetAction(),
+					Result: map[string]string{"status": "completed"},
+				})
 			}
 			tws.Cancel()
 		}
@@ -274,16 +290,3 @@ func (tws *twilioWebsocketStreamer) handleError(message string, err error) error
 	return err
 }
 
-func extractTransferTarget(args map[string]*anypb.Any) string {
-	if args == nil {
-		return ""
-	}
-	iface, err := rapida_utils.AnyMapToInterfaceMap(args)
-	if err != nil {
-		return ""
-	}
-	if to, ok := iface["to"].(string); ok {
-		return to
-	}
-	return ""
-}

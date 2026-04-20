@@ -21,17 +21,12 @@ type endOfConversationCaller struct {
 
 func (t *endOfConversationCaller) Call(ctx context.Context, contextID, toolId string, args map[string]interface{}, communication internal_type.Communication) {
 	communication.OnPacket(ctx, internal_type.LLMToolCallPacket{
-		ToolID: toolId, Name: t.Name(), ContextID: contextID, Arguments: args,
+		ToolID:    toolId,
+		Name:      t.Name(),
+		ContextID: contextID,
+		Action:    protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION,
+		Arguments: internal_tool.StringifyArgs(args),
 	})
-	communication.OnPacket(ctx,
-		internal_type.DirectivePacket{
-			Directive: protos.ConversationDirective_END_CONVERSATION,
-			Arguments: map[string]interface{}{
-				"tool_id": toolId,
-			},
-			ContextID: contextID,
-		},
-	)
 }
 
 func NewEndOfConversationCaller(ctx context.Context, logger commons.Logger, toolOptions *internal_assistant_entity.AssistantTool, communication internal_type.Communication,

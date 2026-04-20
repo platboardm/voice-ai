@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTransferCallCaller_Call_EmitsDirective(t *testing.T) {
+func TestTransferCallCaller_Call_EmitsToolCallWithAction(t *testing.T) {
 	collector := &packetCollector{}
 	comm := &mockCommunication{collector: collector}
 
@@ -26,20 +26,15 @@ func TestTransferCallCaller_Call_EmitsDirective(t *testing.T) {
 	caller.Call(context.Background(), "ctx-100", "tool-200", args, comm)
 
 	pkts := collector.all()
-	require.Len(t, pkts, 2, "expected LLMToolCallPacket + DirectivePacket")
+	require.Len(t, pkts, 1, "expected single LLMToolCallPacket with Action")
 
 	tc, ok := pkts[0].(internal_type.LLMToolCallPacket)
-	require.True(t, ok, "first packet should be LLMToolCallPacket, got %T", pkts[0])
+	require.True(t, ok, "packet should be LLMToolCallPacket, got %T", pkts[0])
 	assert.Equal(t, "tool-200", tc.ToolID)
 	assert.Equal(t, "ctx-100", tc.ContextID)
-
-	dp, ok := pkts[1].(internal_type.DirectivePacket)
-	require.True(t, ok, "expected DirectivePacket, got %T", pkts[0])
-	assert.Equal(t, protos.ConversationDirective_TRANSFER_CONVERSATION, dp.Directive)
-	assert.Equal(t, "ctx-100", dp.ContextID)
-	assert.Equal(t, "+15551234567", dp.Arguments["to"])
-	assert.Equal(t, "tool-200", dp.Arguments["tool_id"])
-	assert.Equal(t, "ctx-100", dp.Arguments["context_id"])
+	assert.Equal(t, "transfer_call", tc.Name)
+	assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION, tc.Action)
+	assert.Equal(t, "+15551234567", tc.Arguments["to"])
 }
 
 func TestTransferCallCaller_Call_NoToolResultPacket(t *testing.T) {
@@ -71,33 +66,18 @@ func TestTransferCallCaller_Call_PacketOrder(t *testing.T) {
 	caller.Call(context.Background(), "ctx-ord-2", "tool-ord-2", args, comm)
 
 	pkts := collector.all()
-	require.Len(t, pkts, 2, "expected exactly 2 packets: LLMToolCallPacket then DirectivePacket")
+	require.Len(t, pkts, 1, "expected single LLMToolCallPacket")
 
-	// [0] must be LLMToolCallPacket
 	tc, ok := pkts[0].(internal_type.LLMToolCallPacket)
 	require.True(t, ok, "packet[0] must be LLMToolCallPacket, got %T", pkts[0])
 	assert.Equal(t, "tool-ord-2", tc.ToolID)
 	assert.Equal(t, "transfer_call", tc.Name)
 	assert.Equal(t, "ctx-ord-2", tc.ContextID)
-	assert.Equal(t, "escalation", tc.Arguments["reason"])
-
-	// [1] must be DirectivePacket with TRANSFER_CONVERSATION directive
-	dp, ok := pkts[1].(internal_type.DirectivePacket)
-	require.True(t, ok, "packet[1] must be DirectivePacket, got %T", pkts[1])
-	assert.Equal(t, protos.ConversationDirective_TRANSFER_CONVERSATION, dp.Directive)
-	assert.Equal(t, "ctx-ord-2", dp.ContextID)
-	assert.Equal(t, "+15559876543", dp.Arguments["to"])
-	assert.Equal(t, "tool-ord-2", dp.Arguments["tool_id"])
-	assert.Equal(t, "ctx-ord-2", dp.Arguments["context_id"])
-
-	// Verify no LLMToolResultPacket anywhere
-	for i, p := range pkts {
-		_, isResult := p.(internal_type.LLMToolResultPacket)
-		assert.False(t, isResult, "packet[%d] should not be LLMToolResultPacket", i)
-	}
+	assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION, tc.Action)
+	assert.Equal(t, "+15559876543", tc.Arguments["to"])
 }
 
-func TestTransferCallCaller_Call_PacketOrder_SIPTarget(t *testing.T) {
+func TestTransferCallCaller_Call_SIPTarget(t *testing.T) {
 	collector := &packetCollector{}
 	comm := &mockCommunication{collector: collector}
 
@@ -110,16 +90,11 @@ func TestTransferCallCaller_Call_PacketOrder_SIPTarget(t *testing.T) {
 	caller.Call(context.Background(), "ctx-sip", "tool-sip", args, comm)
 
 	pkts := collector.all()
-	require.Len(t, pkts, 2)
+	require.Len(t, pkts, 1)
 
-	// [0] LLMToolCallPacket
 	tc, ok := pkts[0].(internal_type.LLMToolCallPacket)
 	require.True(t, ok, "packet[0] must be LLMToolCallPacket")
 	assert.Equal(t, "tool-sip", tc.ToolID)
-
-	// [1] DirectivePacket with SIP URI in "to"
-	dp, ok := pkts[1].(internal_type.DirectivePacket)
-	require.True(t, ok, "packet[1] must be DirectivePacket")
-	assert.Equal(t, protos.ConversationDirective_TRANSFER_CONVERSATION, dp.Directive)
-	assert.Equal(t, "sip:support@pbx.example.com", dp.Arguments["to"])
+	assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION, tc.Action)
+	assert.Equal(t, "sip:support@pbx.example.com", tc.Arguments["to"])
 }

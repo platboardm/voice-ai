@@ -22,9 +22,7 @@ import (
 	internal_telephony_base "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/base"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
-	rapida_utils "github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
-	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -207,9 +205,9 @@ func (aws *asteriskWebsocketStreamer) Send(response internal_type.Stream) error 
 			}
 		}
 
-	case *protos.ConversationDirective:
-		switch data.GetType() {
-		case protos.ConversationDirective_END_CONVERSATION:
+	case *protos.ConversationToolCall:
+		switch data.GetAction() {
+		case protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION:
 			aws.stopAudioProcessing()
 			if err := aws.sendCommand("HANGUP"); err != nil {
 				aws.Logger.Warn("Failed to send HANGUP via WebSocket, trying ARI API", "error", err)
@@ -220,16 +218,31 @@ func (aws *asteriskWebsocketStreamer) Send(response internal_type.Stream) error 
 				}
 			}
 			aws.Cancel()
-		case protos.ConversationDirective_TRANSFER_CONVERSATION:
-			to := extractTransferTarget(data.GetArgs())
+		case protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION:
+			to := data.GetArgs()["to"]
 			if to == "" || aws.channelName == "" {
-				aws.Logger.Warnw("Transfer directive missing target or channel name")
+				aws.PushInput(&protos.ConversationToolCallResult{
+					Id:     data.GetId(),
+					ToolId: data.GetToolId(), Name: data.GetName(), Action: data.GetAction(),
+					Result: map[string]string{"status": "failed", "reason": "missing target or channel name"},
+				})
 				return nil
 			}
 			aws.Logger.Infow("Transferring Asterisk call via ARI redirect", "to", to, "channel", aws.channelName)
 			aws.stopAudioProcessing()
 			if err := aws.redirectViaARI(to); err != nil {
 				aws.Logger.Errorw("ARI redirect failed", "error", err, "to", to)
+				aws.PushInput(&protos.ConversationToolCallResult{
+					Id:     data.GetId(),
+					ToolId: data.GetToolId(), Name: data.GetName(), Action: data.GetAction(),
+					Result: map[string]string{"status": "failed", "reason": fmt.Sprintf("ARI redirect failed: %v", err)},
+				})
+			} else {
+				aws.PushInput(&protos.ConversationToolCallResult{
+					Id:     data.GetId(),
+					ToolId: data.GetToolId(), Name: data.GetName(), Action: data.GetAction(),
+					Result: map[string]string{"status": "completed"},
+				})
 			}
 			aws.Cancel()
 		}
@@ -349,20 +362,6 @@ func (aws *asteriskWebsocketStreamer) redirectViaARI(target string) error {
 	}
 	aws.Logger.Infow("Asterisk call redirected via ARI", "channel", aws.channelName, "target", target)
 	return nil
-}
-
-func extractTransferTarget(args map[string]*anypb.Any) string {
-	if args == nil {
-		return ""
-	}
-	iface, err := rapida_utils.AnyMapToInterfaceMap(args)
-	if err != nil {
-		return ""
-	}
-	if to, ok := iface["to"].(string); ok {
-		return to
-	}
-	return ""
 }
 
 func (aws *asteriskWebsocketStreamer) Cancel() error {

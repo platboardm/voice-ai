@@ -54,7 +54,7 @@ func NewEndpointToolCaller(
 
 func (t *endpointToolCaller) Call(ctx context.Context, contextID, toolId string, args map[string]interface{}, communication internal_type.Communication) {
 	communication.OnPacket(ctx, internal_type.LLMToolCallPacket{
-		ToolID: toolId, Name: t.Name(), ContextID: contextID, Arguments: args,
+		ToolID: toolId, Name: t.Name(), ContextID: contextID, Arguments: internal_tool.StringifyArgs(args),
 	})
 
 	body := t.Argumenting(t.endpointParameters, args, communication)

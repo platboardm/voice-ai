@@ -23,18 +23,12 @@ type transferCallCaller struct {
 
 func (tc *transferCallCaller) Call(ctx context.Context, contextID, toolId string, args map[string]interface{}, communication internal_type.Communication) {
 	communication.OnPacket(ctx, internal_type.LLMToolCallPacket{
-		ToolID: toolId, Name: tc.Name(), ContextID: contextID, Arguments: args,
+		ToolID:    toolId,
+		Name:      tc.Name(),
+		ContextID: contextID,
+		Action:    protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION,
+		Arguments: map[string]string{"to": tc.transferTo},
 	})
-	communication.OnPacket(ctx, internal_type.DirectivePacket{
-			Directive: protos.ConversationDirective_TRANSFER_CONVERSATION,
-			Arguments: map[string]interface{}{
-				"to":         tc.transferTo,
-				"tool_id":    toolId,
-				"context_id": contextID,
-			},
-			ContextID: contextID,
-		},
-	)
 }
 
 func NewTransferCallCaller(ctx context.Context, logger commons.Logger, toolOptions *internal_assistant_entity.AssistantTool, communication internal_type.Communication,

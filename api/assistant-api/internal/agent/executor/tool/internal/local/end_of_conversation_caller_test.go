@@ -48,7 +48,7 @@ func (m *mockCommunication) OnPacket(ctx context.Context, pkts ...internal_type.
 	return m.collector.collect(ctx, pkts...)
 }
 
-func TestEndOfConversationCaller_Call_EmitsDirectivePacket(t *testing.T) {
+func TestEndOfConversationCaller_Call_EmitsToolCallWithAction(t *testing.T) {
 	collector := &packetCollector{}
 	comm := &mockCommunication{collector: collector}
 
@@ -58,18 +58,14 @@ func TestEndOfConversationCaller_Call_EmitsDirectivePacket(t *testing.T) {
 	caller.Call(context.Background(), "ctx-123", "tool-456", args, comm)
 
 	pkts := collector.all()
-	require.Len(t, pkts, 2, "expected LLMToolCallPacket + DirectivePacket")
+	require.Len(t, pkts, 1, "expected single LLMToolCallPacket with Action")
 
 	tc, ok := pkts[0].(internal_type.LLMToolCallPacket)
-	require.True(t, ok, "first packet should be LLMToolCallPacket, got %T", pkts[0])
+	require.True(t, ok, "packet should be LLMToolCallPacket, got %T", pkts[0])
 	assert.Equal(t, "tool-456", tc.ToolID)
 	assert.Equal(t, "ctx-123", tc.ContextID)
-
-	dp, ok := pkts[1].(internal_type.DirectivePacket)
-	require.True(t, ok, "expected DirectivePacket, got %T", pkts[0])
-	assert.Equal(t, protos.ConversationDirective_END_CONVERSATION, dp.Directive)
-	assert.Equal(t, "ctx-123", dp.ContextID)
-	assert.Equal(t, "tool-456", dp.Arguments["tool_id"])
+	assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION, tc.Action)
+	assert.Equal(t, "user_requested", tc.Arguments["reason"])
 }
 
 func TestEndOfConversationCaller_Call_NoToolResultPacket(t *testing.T) {
@@ -98,31 +94,18 @@ func TestEndOfConversationCaller_Call_PacketOrder(t *testing.T) {
 	caller.Call(context.Background(), "ctx-ord-1", "tool-ord-1", args, comm)
 
 	pkts := collector.all()
-	require.Len(t, pkts, 2, "expected exactly 2 packets: LLMToolCallPacket then DirectivePacket")
+	require.Len(t, pkts, 1, "expected single LLMToolCallPacket")
 
-	// [0] must be LLMToolCallPacket
 	tc, ok := pkts[0].(internal_type.LLMToolCallPacket)
 	require.True(t, ok, "packet[0] must be LLMToolCallPacket, got %T", pkts[0])
 	assert.Equal(t, "tool-ord-1", tc.ToolID)
 	assert.Equal(t, "end_of_conversation", tc.Name)
 	assert.Equal(t, "ctx-ord-1", tc.ContextID)
+	assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION, tc.Action)
 	assert.Equal(t, "done", tc.Arguments["reason"])
-
-	// [1] must be DirectivePacket
-	dp, ok := pkts[1].(internal_type.DirectivePacket)
-	require.True(t, ok, "packet[1] must be DirectivePacket, got %T", pkts[1])
-	assert.Equal(t, protos.ConversationDirective_END_CONVERSATION, dp.Directive)
-	assert.Equal(t, "ctx-ord-1", dp.ContextID)
-	assert.Equal(t, "tool-ord-1", dp.Arguments["tool_id"])
-
-	// Verify no LLMToolResultPacket anywhere
-	for i, p := range pkts {
-		_, isResult := p.(internal_type.LLMToolResultPacket)
-		assert.False(t, isResult, "packet[%d] should not be LLMToolResultPacket", i)
-	}
 }
 
-func TestEndOfConversationCaller_Call_PacketOrder_EmptyArgs(t *testing.T) {
+func TestEndOfConversationCaller_Call_EmptyArgs(t *testing.T) {
 	collector := &packetCollector{}
 	comm := &mockCommunication{collector: collector}
 
@@ -131,11 +114,9 @@ func TestEndOfConversationCaller_Call_PacketOrder_EmptyArgs(t *testing.T) {
 	caller.Call(context.Background(), "ctx-empty", "tool-empty", map[string]interface{}{}, comm)
 
 	pkts := collector.all()
-	require.Len(t, pkts, 2)
+	require.Len(t, pkts, 1)
 
-	_, isCall := pkts[0].(internal_type.LLMToolCallPacket)
-	assert.True(t, isCall, "packet[0] must be LLMToolCallPacket even with empty args")
-
-	_, isDirective := pkts[1].(internal_type.DirectivePacket)
-	assert.True(t, isDirective, "packet[1] must be DirectivePacket even with empty args")
+	tc, ok := pkts[0].(internal_type.LLMToolCallPacket)
+	assert.True(t, ok, "packet[0] must be LLMToolCallPacket even with empty args")
+	assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION, tc.Action)
 }

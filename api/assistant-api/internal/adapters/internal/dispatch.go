@@ -38,12 +38,13 @@ func (r *genericRequestor) OnPacket(ctx context.Context, pkts ...internal_type.P
 	for _, p := range pkts {
 		e := packetEnvelope{ctx: ctx, pkt: p}
 		switch p.(type) {
-		// Critical — interrupts and directives
+		// Critical — interrupts, tool lifecycle
 		case internal_type.InterruptionDetectedPacket,
 			internal_type.InterruptTTSPacket,
 			internal_type.InterruptLLMPacket,
 			internal_type.TurnChangePacket,
-			internal_type.DirectivePacket:
+			internal_type.LLMToolCallPacket,
+			internal_type.LLMToolResultPacket:
 			r.criticalCh <- e
 
 		// Input — inbound audio pipeline, VAD, STT, EOS
@@ -60,7 +61,7 @@ func (r *genericRequestor) OnPacket(ctx context.Context, pkts ...internal_type.P
 			internal_type.NormalizedUserTextPacket:
 			r.inputCh <- e
 
-		// Output — LLM generation, TTS, tool execution, outbound pipeline
+		// Output — LLM generation, TTS, outbound pipeline
 		case internal_type.ExecuteLLMPacket,
 			internal_type.LLMResponseDeltaPacket,
 			internal_type.LLMResponseDonePacket,
@@ -69,9 +70,7 @@ func (r *genericRequestor) OnPacket(ctx context.Context, pkts ...internal_type.P
 			internal_type.InjectMessagePacket,
 			internal_type.SpeakTextPacket,
 			internal_type.TextToSpeechAudioPacket,
-			internal_type.TextToSpeechEndPacket,
-			internal_type.LLMToolCallPacket,
-			internal_type.LLMToolResultPacket:
+			internal_type.TextToSpeechEndPacket:
 			r.outputCh <- e
 
 		// Low — recording, metrics, persistence, events
@@ -291,8 +290,6 @@ func (r *genericRequestor) dispatch(ctx context.Context, p internal_type.Packet)
 		r.handleToolCall(ctx, vl)
 	case internal_type.LLMToolResultPacket:
 		r.handleToolResult(ctx, vl)
-	case internal_type.DirectivePacket:
-		r.handleDirective(ctx, vl)
 	case internal_type.ConversationEventPacket:
 		r.handleConversationEvent(ctx, vl)
 	default:
@@ -959,32 +956,53 @@ func (talking *genericRequestor) handleAssistantMessageMetadata(ctx context.Cont
 // =============================================================================
 
 func (talking *genericRequestor) handleToolCall(ctx context.Context, vl internal_type.LLMToolCallPacket) {
-	req, _ := json.Marshal(map[string]interface{}{
-		"id":        vl.ToolID,
-		"name":      vl.Name,
-		"arguments": vl.Arguments,
+	utils.Go(ctx, func() {
+		req, _ := json.Marshal(map[string]interface{}{
+			"id":        vl.ToolID,
+			"name":      vl.Name,
+			"action":    vl.Action.String(),
+			"arguments": vl.Arguments,
+		})
+		if err := talking.CreateToolLog(ctx, vl.ContextID, vl.ToolID, vl.Name, type_enums.RECORD_IN_PROGRESS, req); err != nil {
+			talking.logger.Errorf("error logging tool call start: %v", err)
+		}
 	})
-	if err := talking.CreateToolLog(ctx, vl.ContextID, vl.ToolID, vl.Name, type_enums.RECORD_IN_PROGRESS, req); err != nil {
-		talking.logger.Errorf("error logging tool call start: %v", err)
-	}
 	talking.OnPacket(ctx, internal_type.ConversationEventPacket{
 		ContextID: vl.ContextID,
 		Name:      observe.ComponentTool,
-		Data:      map[string]string{observe.DataType: observe.EventToolCallStarted, "name": vl.Name, "id": vl.ToolID},
+		Data:      map[string]string{observe.DataType: observe.EventToolCallStarted, "name": vl.Name, "id": vl.ToolID, "action": vl.Action.String()},
 		Time:      time.Now(),
 	})
-	utils.Go(ctx, func() {
-		if err := talking.assistantExecutor.Execute(ctx, talking, vl); err != nil {
-			talking.logger.Errorf("assistant executor error: %v", err)
-		}
-	})
+
+	// Notify client/streamer for actionable tool calls (end conversation, transfer, etc.)
+	if vl.Action != protos.ToolCallAction_TOOL_CALL_ACTION_UNSPECIFIED {
+		talking.Notify(ctx, &protos.ConversationToolCall{
+			Id:     vl.ContextID,
+			ToolId: vl.ToolID,
+			Name:   vl.Name,
+			Action: vl.Action,
+			Args:   vl.Arguments,
+			Time:   timestamppb.Now(),
+		})
+	}
+
+	if talking.assistantExecutor != nil {
+		utils.Go(ctx, func() {
+			if err := talking.assistantExecutor.Execute(ctx, talking, vl); err != nil {
+				talking.logger.Errorf("assistant executor error: %v", err)
+			}
+		})
+	}
 }
 
 func (talking *genericRequestor) handleToolResult(ctx context.Context, vl internal_type.LLMToolResultPacket) {
-	res, _ := json.Marshal(vl.Result)
-	if err := talking.UpdateToolLog(ctx, vl.ToolID, vl.TimeTaken, type_enums.RECORD_COMPLETE, res); err != nil {
-		talking.logger.Errorf("error logging tool call result: %v", err)
-	}
+	utils.Go(ctx, func() {
+		res, _ := json.Marshal(vl.Result)
+		if err := talking.UpdateToolLog(ctx, vl.ToolID, 0, type_enums.RECORD_COMPLETE, res); err != nil {
+			talking.logger.Errorf("error logging tool call result: %v", err)
+		}
+	})
+
 	talking.OnPacket(ctx, internal_type.ConversationEventPacket{
 		ContextID: vl.ContextID,
 		Name:      observe.ComponentTool,
@@ -996,27 +1014,6 @@ func (talking *genericRequestor) handleToolResult(ctx context.Context, vl intern
 			talking.logger.Errorf("tool result processing failed: %v", err)
 		}
 	})
-}
-
-// =============================================================================
-// Control handler
-// =============================================================================
-
-func (talking *genericRequestor) handleDirective(ctx context.Context, vl internal_type.DirectivePacket) {
-	anyArgs, _ := utils.InterfaceMapToAnyMap(vl.Arguments)
-	switch vl.Directive {
-	case protos.ConversationDirective_END_CONVERSATION,
-		protos.ConversationDirective_TRANSFER_CONVERSATION:
-		if err := talking.Notify(ctx, &protos.ConversationDirective{
-			Id:   vl.ContextID,
-			Type: vl.Directive,
-			Args: anyArgs,
-			Time: timestamppb.Now(),
-		}); err != nil {
-			talking.logger.Errorf("error notifying directive %s: %v", vl.Directive, err)
-		}
-	default:
-	}
 }
 
 // =============================================================================

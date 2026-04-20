@@ -211,15 +211,6 @@ type TurnChangePacket struct {
 
 func (f TurnChangePacket) ContextId() string { return f.ContextID }
 
-// DirectivePacket carries a typed control action (e.g. end conversation).
-type DirectivePacket struct {
-	ContextID string
-	Directive protos.ConversationDirective_DirectiveType
-	Arguments map[string]interface{}
-}
-
-func (f DirectivePacket) ContextId() string { return f.ContextID }
-
 // InjectMessagePacket injects a pre-written message (greeting, error, idle timeout) into the pipeline.
 type InjectMessagePacket struct {
 	ContextID string
@@ -269,24 +260,27 @@ type LLMErrorPacket struct {
 
 func (f LLMErrorPacket) ContextId() string { return f.ContextID }
 
-// LLMToolCallPacket signals that the LLM invoked a tool.
+// LLMToolCallPacket signals that a tool was invoked.
+// Action determines whether the client/channel needs to act (e.g. end call, transfer).
 type LLMToolCallPacket struct {
 	ToolID    string
 	Name      string
 	ContextID string
-	Arguments map[string]interface{}
+	Action    protos.ToolCallAction
+	Arguments map[string]string
 }
 
 func (f LLMToolCallPacket) ContextId() string { return f.ContextID }
 func (f LLMToolCallPacket) ToolId() string    { return f.ToolID }
 
 // LLMToolResultPacket carries the result of a tool execution.
+// Arrives from server-side tools (immediate) or from client/channel (directive).
 type LLMToolResultPacket struct {
 	ToolID    string
 	Name      string
 	ContextID string
-	TimeTaken int64 // nanoseconds
-	Result    map[string]interface{}
+	Action    protos.ToolCallAction
+	Result    map[string]string
 }
 
 func (f LLMToolResultPacket) ToolId() string    { return f.ToolID }

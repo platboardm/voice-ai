@@ -74,7 +74,7 @@ func (m *MCPToolCaller) Call(
 	communication internal_type.Communication,
 ) {
 	communication.OnPacket(ctx, internal_type.LLMToolCallPacket{
-		ToolID: toolId, Name: m.toolName, ContextID: contextID, Arguments: args,
+		ToolID: toolId, Name: m.toolName, ContextID: contextID, Arguments: internal_tool.StringifyArgs(args),
 	})
 	response, err := m.client.Execute(ctx, m.toolName, args)
 	if err != nil {

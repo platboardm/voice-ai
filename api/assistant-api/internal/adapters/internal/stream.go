@@ -117,28 +117,14 @@ func (t *genericRequestor) Talk(_ context.Context, auth types.SimplePrinciple) e
 				}
 			}
 
-		case *protos.ConversationToolResult:
+		case *protos.ConversationToolCallResult:
 			if initialized {
-				result := make(map[string]interface{})
-				if payload.Success {
-					result["status"] = "SUCCESS"
-				} else {
-					result["status"] = "FAIL"
-				}
-				if argsMap, err := utils.AnyMapToInterfaceMap(payload.Args); err == nil {
-					for k, v := range argsMap {
-						result[k] = v
-					}
-				}
-				contextID := payload.Id
-				if contextID == "" {
-					contextID = t.GetID()
-				}
 				t.OnPacket(t.streamer.Context(), internal_type.LLMToolResultPacket{
-					ToolID:    payload.ToolId,
-					Name:      payload.Name,
-					ContextID: contextID,
-					Result:    result,
+					ToolID:    payload.GetToolId(),
+					Name:      payload.GetName(),
+					ContextID: payload.GetId(),
+					Action:    payload.GetAction(),
+					Result:    payload.GetResult(),
 				})
 			}
 
@@ -185,24 +171,24 @@ func (t *genericRequestor) Talk(_ context.Context, auth types.SimplePrinciple) e
 				}
 			}
 
-		case *protos.ConversationDisconnection:
-			if initialized {
-				t.OnPacket(context.Background(), internal_type.ConversationEventPacket{
-					ContextID: t.GetID(),
-					Name:      obs.ComponentSession,
-					Data:      map[string]string{obs.DataType: obs.EventDisconnectRequested, obs.DataReason: payload.GetType().String()},
-					Time:      time.Now(),
-				})
-				t.OnPacket(context.Background(),
-					internal_type.ConversationMetadataPacket{
-						ContextID: t.Conversation().Id,
-						Metadata: []*protos.Metadata{{
-							Key:   "disconnect_reason",
-							Value: payload.GetType().String(),
-						}},
-					},
-				)
-			}
+			// case *protos.ConversationDisconnection:
+			// 	if initialized {
+			// 		t.OnPacket(context.Background(), internal_type.ConversationEventPacket{
+			// 			ContextID: t.GetID(),
+			// 			Name:      obs.ComponentSession,
+			// 			Data:      map[string]string{obs.DataType: obs.EventDisconnectRequested, obs.DataReason: payload.GetType().String()},
+			// 			Time:      time.Now(),
+			// 		})
+			// 		t.OnPacket(context.Background(),
+			// 			internal_type.ConversationMetadataPacket{
+			// 				ContextID: t.Conversation().Id,
+			// 				Metadata: []*protos.Metadata{{
+			// 					Key:   "disconnect_reason",
+			// 					Value: payload.GetType().String(),
+			// 				}},
+			// 			},
+			// 		)
+			// 	}
 		}
 	}
 }

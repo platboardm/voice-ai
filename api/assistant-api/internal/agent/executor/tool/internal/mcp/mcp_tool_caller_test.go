@@ -148,9 +148,9 @@ func TestMCPToolCaller_Call_SuccessPacketShape(t *testing.T) {
 		ToolID:    "tool-2",
 		Name:      "success_tool",
 		ContextID: "ctx-2",
-		Result: map[string]interface{}{
+		Result: map[string]string{
 			"status": "SUCCESS",
-			"result": []string{"hello"},
+			"result": `["hello"]`,
 		},
 	}
 
@@ -200,7 +200,7 @@ func TestMCPToolCaller_Call_PacketOrder_Success(t *testing.T) {
 	assert.Equal(t, "success_tool", tr.Name)
 	assert.Equal(t, "ctx-s1", tr.ContextID)
 	assert.Equal(t, "SUCCESS", tr.Result["status"])
-	assert.Equal(t, []string{"hello world"}, tr.Result["result"])
+	assert.Equal(t, `["hello world"]`, tr.Result["result"])
 }
 
 func TestMCPToolCaller_Call_PacketOrder_ClientError(t *testing.T) {
@@ -269,7 +269,7 @@ func TestMCPToolCaller_Call_PacketOrder_ToolReturnsError(t *testing.T) {
 	assert.Equal(t, "invalid input", tr.Result["error"])
 }
 
-func TestMCPToolCaller_Call_NoDirectivePacket(t *testing.T) {
+func TestMCPToolCaller_Call_NoActionOnToolCall(t *testing.T) {
 	collector := &packetCollector{}
 	comm := &mockCommunication{collector: collector}
 	logger, _ := commons.NewApplicationLogger()
@@ -289,8 +289,9 @@ func TestMCPToolCaller_Call_NoDirectivePacket(t *testing.T) {
 
 	pkts := collector.all()
 	for i, p := range pkts {
-		_, isDirective := p.(internal_type.DirectivePacket)
-		assert.False(t, isDirective, "packet[%d] should not be DirectivePacket; MCP tools emit results, not directives", i)
+		if tc, ok := p.(internal_type.LLMToolCallPacket); ok {
+			assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_UNSPECIFIED, tc.Action, "packet[%d] LLMToolCallPacket should have no action; MCP tools emit results, not actions", i)
+		}
 	}
 }
 

@@ -176,6 +176,17 @@ func findPackets[T internal_type.Packet](pkts []internal_type.Packet) []T {
 	return out
 }
 
+// findActionToolCalls returns LLMToolCallPackets that have a non-UNSPECIFIED Action.
+func findActionToolCalls(pkts []internal_type.Packet) []internal_type.LLMToolCallPacket {
+	var out []internal_type.LLMToolCallPacket
+	for _, p := range pkts {
+		if tc, ok := p.(internal_type.LLMToolCallPacket); ok && tc.Action != protos.ToolCallAction_TOOL_CALL_ACTION_UNSPECIFIED {
+			out = append(out, tc)
+		}
+	}
+	return out
+}
+
 // =============================================================================
 // Tests: handleResponse — table-driven, 9 cases
 // =============================================================================
@@ -287,8 +298,8 @@ func TestHandleResponse(t *testing.T) {
 		{
 			name: "tool_call",
 			resp: &protos.TalkOutput{
-				Data: &protos.TalkOutput_Tool{
-					Tool: &protos.ConversationToolCall{
+				Data: &protos.TalkOutput_ToolCall{
+					ToolCall: &protos.ConversationToolCall{
 						Id:     "tc-1",
 						ToolId: "tool-42",
 						Name:   "get_weather",
@@ -297,23 +308,21 @@ func TestHandleResponse(t *testing.T) {
 			},
 			wantFunc: func(t *testing.T, pkts []internal_type.Packet) {
 				require.Len(t, pkts, 1)
-				ev, ok := pkts[0].(internal_type.ConversationEventPacket)
+				tc, ok := pkts[0].(internal_type.LLMToolCallPacket)
 				require.True(t, ok)
-				assert.Equal(t, "tool", ev.Name)
-				assert.Equal(t, "tool_call", ev.Data["type"])
-				assert.Equal(t, "tool-42", ev.Data["tool_id"])
-				assert.Equal(t, "get_weather", ev.Data["name"])
+				assert.Equal(t, "tool-42", tc.ToolID)
+				assert.Equal(t, "get_weather", tc.Name)
 			},
 		},
 		{
-			name: "tool_result",
+			name: "tool_call_result",
 			resp: &protos.TalkOutput{
-				Data: &protos.TalkOutput_ToolResult{
-					ToolResult: &protos.ConversationToolResult{
-						Id:      "tr-1",
-						ToolId:  "tool-42",
-						Name:    "get_weather",
-						Success: true,
+				Data: &protos.TalkOutput_ToolCallResult{
+					ToolCallResult: &protos.ConversationToolCallResult{
+						Id:     "tr-1",
+						ToolId: "tool-42",
+						Name:   "get_weather",
+						Action: protos.ToolCallAction_TOOL_CALL_ACTION_UNSPECIFIED,
 					},
 				},
 			},
@@ -323,7 +332,6 @@ func TestHandleResponse(t *testing.T) {
 				require.True(t, ok)
 				assert.Equal(t, "tool", ev.Name)
 				assert.Equal(t, "tool_result", ev.Data["type"])
-				assert.Equal(t, "true", ev.Data["success"])
 			},
 		},
 		{
@@ -347,27 +355,27 @@ func TestHandleResponse(t *testing.T) {
 				assert.Equal(t, "error", ev.Data["type"])
 				assert.Equal(t, "500", ev.Data["code"])
 
-				dir, ok := pkts[2].(internal_type.DirectivePacket)
+				dir, ok := pkts[2].(internal_type.LLMToolCallPacket)
 				require.True(t, ok)
-				assert.Equal(t, protos.ConversationDirective_END_CONVERSATION, dir.Directive)
+				assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION, dir.Action)
 			},
 		},
 		{
-			name: "directive",
+			name: "tool_call_with_action",
 			resp: &protos.TalkOutput{
-				Data: &protos.TalkOutput_Directive{
-					Directive: &protos.ConversationDirective{
-						Id:   "d-1",
-						Type: protos.ConversationDirective_END_CONVERSATION,
+				Data: &protos.TalkOutput_ToolCall{
+					ToolCall: &protos.ConversationToolCall{
+						Id:     "d-1",
+						Action: protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION,
 					},
 				},
 			},
 			wantFunc: func(t *testing.T, pkts []internal_type.Packet) {
 				require.Len(t, pkts, 1)
-				dir, ok := pkts[0].(internal_type.DirectivePacket)
+				tc, ok := pkts[0].(internal_type.LLMToolCallPacket)
 				require.True(t, ok)
-				assert.Equal(t, "d-1", dir.ContextID)
-				assert.Equal(t, protos.ConversationDirective_END_CONVERSATION, dir.Directive)
+				assert.Equal(t, "d-1", tc.ContextID)
+				assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION, tc.Action)
 			},
 		},
 	}
@@ -530,9 +538,9 @@ func TestListen_RecvEOF(t *testing.T) {
 		t.Fatal("listen did not exit on EOF")
 	}
 
-	dirs := findPackets[internal_type.DirectivePacket](collector.all())
+	dirs := findActionToolCalls(collector.all())
 	require.Len(t, dirs, 1)
-	assert.Equal(t, protos.ConversationDirective_END_CONVERSATION, dirs[0].Directive)
+	assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION, dirs[0].Action)
 	assert.Equal(t, "server closed connection", dirs[0].Arguments["reason"])
 }
 
@@ -556,7 +564,7 @@ func TestListen_RecvUnavailable(t *testing.T) {
 		t.Fatal("listen did not exit on Unavailable")
 	}
 
-	dirs := findPackets[internal_type.DirectivePacket](collector.all())
+	dirs := findActionToolCalls(collector.all())
 	require.Len(t, dirs, 1)
 	assert.Equal(t, "server unavailable", dirs[0].Arguments["reason"])
 }
@@ -763,7 +771,7 @@ func TestListen_ProcessesMultipleMessages(t *testing.T) {
 	pkts := collector.all()
 	deltas := findPackets[internal_type.LLMResponseDeltaPacket](pkts)
 	assert.Len(t, deltas, 2)
-	dirs := findPackets[internal_type.DirectivePacket](pkts)
+	dirs := findActionToolCalls(pkts)
 	assert.Len(t, dirs, 1)
 }
 
@@ -833,12 +841,11 @@ func TestHandleResponse_ToolResultFailed(t *testing.T) {
 	comm, collector := newTestComm()
 
 	resp := &protos.TalkOutput{
-		Data: &protos.TalkOutput_ToolResult{
-			ToolResult: &protos.ConversationToolResult{
-				Id:      "tr-2",
-				ToolId:  "tool-99",
-				Name:    "calculator",
-				Success: false,
+		Data: &protos.TalkOutput_ToolCallResult{
+			ToolCallResult: &protos.ConversationToolCallResult{
+				Id:     "tr-2",
+				ToolId: "tool-99",
+				Name:   "calculator",
 			},
 		},
 	}
@@ -846,7 +853,7 @@ func TestHandleResponse_ToolResultFailed(t *testing.T) {
 
 	evs := findPackets[internal_type.ConversationEventPacket](collector.all())
 	require.Len(t, evs, 1)
-	assert.Equal(t, "false", evs[0].Data["success"])
+	assert.Equal(t, "tool_result", evs[0].Data["type"])
 }
 
 // =============================================================================
@@ -1133,15 +1140,15 @@ func TestE2E_ToolCallAndResult(t *testing.T) {
 
 	// Tool call
 	e.handleResponse(context.Background(), &protos.TalkOutput{
-		Data: &protos.TalkOutput_Tool{Tool: &protos.ConversationToolCall{
+		Data: &protos.TalkOutput_ToolCall{ToolCall: &protos.ConversationToolCall{
 			Id: "ctx-1", ToolId: "tool-1", Name: "get_weather",
 		}},
 	}, comm)
 
 	// Tool result
 	e.handleResponse(context.Background(), &protos.TalkOutput{
-		Data: &protos.TalkOutput_ToolResult{ToolResult: &protos.ConversationToolResult{
-			Id: "ctx-1", ToolId: "tool-1", Name: "get_weather", Success: true,
+		Data: &protos.TalkOutput_ToolCallResult{ToolCallResult: &protos.ConversationToolCallResult{
+			Id: "ctx-1", ToolId: "tool-1", Name: "get_weather",
 		}},
 	}, comm)
 
@@ -1154,14 +1161,21 @@ func TestE2E_ToolCallAndResult(t *testing.T) {
 	}, comm)
 
 	pkts := collector.all()
+
+	// tool_call is now LLMToolCallPacket (not ConversationEventPacket)
+	toolCalls := findPackets[internal_type.LLMToolCallPacket](pkts)
+	require.Len(t, toolCalls, 1, "expected 1 LLMToolCallPacket for tool call")
+	assert.Equal(t, "get_weather", toolCalls[0].Name)
+
+	// tool_result is still a ConversationEventPacket
 	events := findPackets[internal_type.ConversationEventPacket](pkts)
-	toolEvents := make([]string, 0)
+	toolResultEvents := make([]string, 0)
 	for _, ev := range events {
-		if ev.Name == "tool" {
-			toolEvents = append(toolEvents, ev.Data["type"])
+		if ev.Name == "tool" && ev.Data["type"] == "tool_result" {
+			toolResultEvents = append(toolResultEvents, ev.Data["type"])
 		}
 	}
-	assert.Equal(t, []string{"tool_call", "tool_result"}, toolEvents)
+	assert.Equal(t, []string{"tool_result"}, toolResultEvents)
 
 	dones := findPackets[internal_type.LLMResponseDonePacket](pkts)
 	require.Len(t, dones, 1)
@@ -1180,11 +1194,11 @@ func TestE2E_ErrorEndsConversation(t *testing.T) {
 
 	pkts := collector.all()
 	errPkts := findPackets[internal_type.LLMErrorPacket](pkts)
-	dirs := findPackets[internal_type.DirectivePacket](pkts)
+	dirs := findActionToolCalls(pkts)
 	require.Len(t, errPkts, 1)
 	assert.Contains(t, errPkts[0].Error.Error(), "agent crashed")
 	require.Len(t, dirs, 1)
-	assert.Equal(t, protos.ConversationDirective_END_CONVERSATION, dirs[0].Directive)
+	assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION, dirs[0].Action)
 }
 
 func TestE2E_ListenProcessesAndExitsOnEOF(t *testing.T) {
@@ -1222,7 +1236,7 @@ func TestE2E_ListenProcessesAndExitsOnEOF(t *testing.T) {
 	pkts := collector.all()
 	deltas := findPackets[internal_type.LLMResponseDeltaPacket](pkts)
 	dones := findPackets[internal_type.LLMResponseDonePacket](pkts)
-	dirs := findPackets[internal_type.DirectivePacket](pkts)
+	dirs := findActionToolCalls(pkts)
 	assert.Len(t, deltas, 1)
 	assert.Len(t, dones, 1)
 	assert.Len(t, dirs, 1)
@@ -1426,9 +1440,9 @@ func TestConsistency_StaleContextDoesNotEmitPackets(t *testing.T) {
 			Message: &protos.ConversationAssistantMessage_Text{Text: "ignore"},
 		}}},
 		{Data: &protos.TalkOutput_Interruption{Interruption: &protos.ConversationInterruption{Id: "ctx-stale"}}},
-		{Data: &protos.TalkOutput_Tool{Tool: &protos.ConversationToolCall{Id: "ctx-stale"}}},
-		{Data: &protos.TalkOutput_ToolResult{ToolResult: &protos.ConversationToolResult{Id: "ctx-stale"}}},
-		{Data: &protos.TalkOutput_Directive{Directive: &protos.ConversationDirective{Id: "ctx-stale", Type: protos.ConversationDirective_END_CONVERSATION}}},
+		{Data: &protos.TalkOutput_ToolCall{ToolCall: &protos.ConversationToolCall{Id: "ctx-stale"}}},
+		{Data: &protos.TalkOutput_ToolCallResult{ToolCallResult: &protos.ConversationToolCallResult{Id: "ctx-stale"}}},
+		{Data: &protos.TalkOutput_ToolCall{ToolCall: &protos.ConversationToolCall{Id: "ctx-stale", Action: protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION}}},
 	}
 
 	for _, resp := range staleTypes {

@@ -26,7 +26,7 @@ type apiRequestToolCaller struct {
 
 func (t *apiRequestToolCaller) Call(ctx context.Context, contextID, toolId string, args map[string]interface{}, communication internal_type.Communication) {
 	communication.OnPacket(ctx, internal_type.LLMToolCallPacket{
-		ToolID: toolId, Name: t.Name(), ContextID: contextID, Arguments: args,
+		ToolID: toolId, Name: t.Name(), ContextID: contextID, Arguments: internal_tool.StringifyArgs(args),
 	})
 
 	client := rest.NewRestClientWithConfig(t.apiEndpoint, t.apiRequestHeader, 15)

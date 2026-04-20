@@ -76,7 +76,7 @@ var _ internal_agent_executor.AssistantExecutor = (*modelAssistantExecutor)(nil)
 type modelAssistantExecutor struct {
 	logger commons.Logger
 
-	// packets (LLMToolCallPacket, LLMToolResultPacket, DirectivePacket).
+	// packets (LLMToolCallPacket, LLMToolResultPacket).
 	toolExecutor internal_agent_executor.ToolExecutor
 
 	// providerCredential is fetched on Initialize and used for all chat
@@ -340,9 +340,9 @@ func (e *modelAssistantExecutor) listen(ctx context.Context, communication inter
 			default:
 			}
 			reason := e.streamErrorReason(err)
-			communication.OnPacket(ctx, internal_type.DirectivePacket{
-				Directive: protos.ConversationDirective_END_CONVERSATION,
-				Arguments: map[string]interface{}{"reason": reason},
+			communication.OnPacket(ctx, internal_type.LLMToolCallPacket{
+				Action:    protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION,
+				Arguments: map[string]string{"reason": reason},
 			})
 			return
 		}
@@ -569,8 +569,9 @@ func (e *modelAssistantExecutor) stageEmitResponseUpstream(ctx context.Context, 
 	return e.emitStreamingChunk(ctx, communication, pipeline)
 }
 
-// emitCompletion handles the final response for a turn — appends to history
-// (for non-tool completions), emits DonePacket, completion event, and metrics.
+// emitCompletion handles the final response for a turn — appends to history,
+// emits DonePacket, completion event, and metrics. For tool_call responses,
+// stageToolFollowUp handles tool execution after this returns.
 func (e *modelAssistantExecutor) emitCompletion(ctx context.Context, communication internal_type.Communication, pipeline LLMResponsePipeline) error {
 	contextID := pipeline.Response.GetRequestId()
 	responseText := strings.Join(pipeline.Output.GetAssistant().GetContents(), "")

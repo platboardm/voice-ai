@@ -19,9 +19,7 @@ import (
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
 	"github.com/rapidaai/pkg/commons"
-	rapida_utils "github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
-	"google.golang.org/protobuf/types/known/anypb"
 )
 
 type Streamer struct {
@@ -160,25 +158,24 @@ func (s *Streamer) Send(response internal_type.Stream) error {
 		if data.Type == protos.ConversationInterruption_INTERRUPTION_TYPE_WORD {
 			s.audio.ClearOutputBuffer()
 		}
-	case *protos.ConversationDirective:
-		switch data.GetType() {
-		case protos.ConversationDirective_END_CONVERSATION:
+	case *protos.ConversationToolCall:
+		switch data.GetAction() {
+		case protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION:
+			s.PushToolCallResult(data.GetId(), data.GetToolId(), data.GetName(), data.GetAction(), map[string]string{
+				"status": "completed",
+			})
 			return s.Close()
-		case protos.ConversationDirective_TRANSFER_CONVERSATION:
-			to := s.extractTransferTarget(data.GetArgs())
+		case protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION:
+			to := data.GetArgs()["to"]
 			if to == "" {
-				s.Logger.Warnw("Transfer directive missing 'to' target")
+				s.Logger.Warnw("Transfer tool call missing 'to' target")
 				return nil
 			}
-			toolID := s.extractArgString(data.GetArgs(), "tool_id")
-			contextID := s.extractArgString(data.GetArgs(), "context_id")
 			s.mu.RLock()
 			if s.session != nil {
 				s.session.SetMetadata(sip_infra.MetadataBridgeTransferTarget, to)
-				if toolID != "" {
-					s.session.SetMetadata("tool_id", toolID)
-					s.session.SetMetadata("tool_context_id", contextID)
-				}
+				s.session.SetMetadata("tool_id", data.GetToolId())
+				s.session.SetMetadata("tool_context_id", data.GetId())
 			}
 			s.mu.RUnlock()
 			s.EnterTransferMode(to)
@@ -269,19 +266,13 @@ func (s *Streamer) PushBridgeOperatorAudio(audio []byte) {
 	s.audio.PushOperatorAudio(audio)
 }
 
-func (s *Streamer) PushToolResult(contextID, toolID, name string, success bool, data map[string]interface{}) {
-	args := make(map[string]*anypb.Any)
-	if data != nil {
-		if converted, err := rapida_utils.InterfaceMapToAnyMap(data); err == nil {
-			args = converted
-		}
-	}
-	s.PushInput(&protos.ConversationToolResult{
-		Id:      contextID,
-		ToolId:  toolID,
-		Name:    name,
-		Success: success,
-		Args:    args,
+func (s *Streamer) PushToolCallResult(contextID, toolID, toolName string, action protos.ToolCallAction, result map[string]string) {
+	s.PushInput(&protos.ConversationToolCallResult{
+		Id:     contextID,
+		ToolId: toolID,
+		Name:   toolName,
+		Action: action,
+		Result: result,
 	})
 }
 
@@ -318,22 +309,4 @@ func (s *Streamer) Close() error {
 
 	s.Logger.Infow("SIP streamer closed")
 	return nil
-}
-
-func (s *Streamer) extractTransferTarget(args map[string]*anypb.Any) string {
-	return s.extractArgString(args, "to")
-}
-
-func (s *Streamer) extractArgString(args map[string]*anypb.Any, key string) string {
-	if args == nil {
-		return ""
-	}
-	iface, err := rapida_utils.AnyMapToInterfaceMap(args)
-	if err != nil {
-		return ""
-	}
-	if v, ok := iface[key].(string); ok {
-		return v
-	}
-	return ""
 }

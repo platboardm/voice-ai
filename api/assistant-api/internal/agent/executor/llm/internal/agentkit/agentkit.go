@@ -245,9 +245,9 @@ func (e *agentkitExecutor) listen(ctx context.Context, comm internal_type.Commun
 		resp, err := talker.Recv()
 		if err != nil {
 			reason := e.streamErrorReason(err)
-			comm.OnPacket(ctx, internal_type.DirectivePacket{
-				Directive: protos.ConversationDirective_END_CONVERSATION,
-				Arguments: map[string]interface{}{"reason": reason},
+			comm.OnPacket(ctx, internal_type.LLMToolCallPacket{
+				Action:    protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION,
+				Arguments: map[string]string{"reason": reason},
 			})
 			return
 		}
@@ -395,46 +395,43 @@ func (e *agentkitExecutor) handleResponse(ctx context.Context, resp *protos.Talk
 			e.logger.Debugf("Received audio message (not implemented)")
 		}
 
-	case *protos.TalkOutput_Tool:
-		if !e.isCurrentContextID(data.Tool.GetId()) {
+	case *protos.TalkOutput_ToolCall:
+		tc := data.ToolCall
+		if !e.isCurrentContextID(tc.GetId()) {
 			return
 		}
-		// External agent notifying Rapida of an in-progress tool call.
-		// Emits: ConversationEventPacket {type: "tool_call"} (Name="tool")
-		e.logger.Debugf("AgentKit tool call: id=%s toolId=%s name=%s", data.Tool.GetId(), data.Tool.GetToolId(), data.Tool.GetName())
-		comm.OnPacket(ctx, internal_type.ConversationEventPacket{
-			ContextID: data.Tool.GetId(),
-			Name:      "tool",
-			Data: map[string]string{
-				"type":    "tool_call",
-				"tool_id": data.Tool.GetToolId(),
-				"name":    data.Tool.GetName(),
-			},
-			Time: time.Now(),
+		// External agent notifying Rapida of a tool call.
+		// If the action is non-zero, it flows through handleToolCall as an actionable tool call.
+		e.logger.Debugf("AgentKit tool call: id=%s toolId=%s name=%s action=%s", tc.GetId(), tc.GetToolId(), tc.GetName(), tc.GetAction())
+		comm.OnPacket(ctx, internal_type.LLMToolCallPacket{
+			ContextID: tc.GetId(),
+			ToolID:    tc.GetToolId(),
+			Name:      tc.GetName(),
+			Action:    tc.GetAction(),
+			Arguments: tc.GetArgs(),
 		})
 
-	case *protos.TalkOutput_ToolResult:
-		if !e.isCurrentContextID(data.ToolResult.GetId()) {
+	case *protos.TalkOutput_ToolCallResult:
+		tr := data.ToolCallResult
+		if !e.isCurrentContextID(tr.GetId()) {
 			return
 		}
 		// External agent notifying Rapida of a completed tool result.
-		// Emits: ConversationEventPacket {type: "tool_result"} (Name="tool")
-		e.logger.Debugf("AgentKit tool result: id=%s toolId=%s name=%s success=%v", data.ToolResult.GetId(), data.ToolResult.GetToolId(), data.ToolResult.GetName(), data.ToolResult.GetSuccess())
+		e.logger.Debugf("AgentKit tool result: id=%s toolId=%s name=%s action=%s", tr.GetId(), tr.GetToolId(), tr.GetName(), tr.GetAction())
 		comm.OnPacket(ctx, internal_type.ConversationEventPacket{
-			ContextID: data.ToolResult.GetId(),
+			ContextID: tr.GetId(),
 			Name:      "tool",
 			Data: map[string]string{
 				"type":    "tool_result",
-				"tool_id": data.ToolResult.GetToolId(),
-				"name":    data.ToolResult.GetName(),
-				"success": fmt.Sprintf("%v", data.ToolResult.GetSuccess()),
+				"tool_id": tr.GetToolId(),
+				"name":    tr.GetName(),
+				"action":  tr.GetAction().String(),
 			},
 			Time: time.Now(),
 		})
 
 	case *protos.TalkOutput_Error:
 		// External agent sent an error — emit error packets then end conversation.
-		// Emits: LLMErrorPacket + ConversationEventPacket {type: "error"} + DirectivePacket
 		errMsg := data.Error.GetErrorMessage()
 		e.logger.Errorf("AgentKit agent error: code=%d message=%s", data.Error.GetErrorCode(), errMsg)
 		comm.OnPacket(ctx,
@@ -450,18 +447,11 @@ func (e *agentkitExecutor) handleResponse(ctx context.Context, resp *protos.Talk
 				},
 				Time: time.Now(),
 			},
-			internal_type.DirectivePacket{
-				Directive: protos.ConversationDirective_END_CONVERSATION,
-				Arguments: map[string]interface{}{"reason": errMsg},
+			internal_type.LLMToolCallPacket{
+				Action:    protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION,
+				Arguments: map[string]string{"reason": errMsg},
 			},
 		)
-
-	case *protos.TalkOutput_Directive:
-		if !e.isCurrentContextID(data.Directive.GetId()) {
-			return
-		}
-		args, _ := utils.AnyMapToInterfaceMap(data.Directive.GetArgs())
-		comm.OnPacket(ctx, internal_type.DirectivePacket{ContextID: data.Directive.GetId(), Directive: data.Directive.GetType(), Arguments: args})
 	}
 }
 

@@ -103,14 +103,14 @@ func (r *genericRequestor) initializeMaxSessionDuration(ctx context.Context, beh
 	if behavior.MaxSessionDuration == nil || *behavior.MaxSessionDuration <= 0 {
 		return
 	}
-
 	timeoutDuration := time.Duration(*behavior.MaxSessionDuration) * time.Second
 	r.maxSessionTimer = time.AfterFunc(timeoutDuration, func() {
-		r.OnPacket(ctx, internal_type.DirectivePacket{
+		r.OnPacket(ctx, internal_type.LLMToolCallPacket{
 			ContextID: r.GetID(),
-			Directive: protos.ConversationDirective_END_CONVERSATION,
-			Arguments: map[string]interface{}{
-				"reason": "max session duration reached",
+			Action:    protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION,
+			Arguments: map[string]string{
+				"reason":           "max session duration reached",
+				"duration_seconds": fmt.Sprintf("%d", *behavior.MaxSessionDuration),
 			},
 		})
 	})
@@ -163,12 +163,16 @@ func (r *genericRequestor) onIdleTimeout(ctx context.Context) error {
 	// Check if max backoff retries reached
 	if behavior.IdleTimeoutBackoff != nil && *behavior.IdleTimeoutBackoff > 0 {
 		if r.idleTimeoutCount >= *behavior.IdleTimeoutBackoff {
-			r.OnPacket(ctx, internal_type.DirectivePacket{
+			args := map[string]string{
+				"reason": "idle timeout max retries reached",
+			}
+			if behavior.MaxSessionDuration != nil {
+				args["duration_seconds"] = fmt.Sprintf("%d", *behavior.MaxSessionDuration)
+			}
+			r.OnPacket(ctx, internal_type.LLMToolCallPacket{
 				ContextID: r.GetID(),
-				Directive: protos.ConversationDirective_END_CONVERSATION,
-				Arguments: map[string]interface{}{
-					"reason": "max session duration reached",
-				},
+				Action:    protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION,
+				Arguments: args,
 			})
 			return nil
 		}
@@ -273,17 +277,6 @@ func (r *genericRequestor) extendIdleTimeoutTimer(d time.Duration) {
 func (r *genericRequestor) stopIdleTimeoutTimerAndResetCount() {
 	r.stopIdleTimeoutTimer()
 	r.idleTimeoutCount = 0
-}
-
-// ResetIdleTimeoutTimer resets the idle timeout timer when the user responds,
-// indicating they are still engaged in the conversation.
-// The inputDuration parameter extends the idle timeout to account for user input time.
-func (r *genericRequestor) resetIdleTimeoutTimer(ctx context.Context, inputDuration ...time.Duration) {
-	if r.idleTimeoutTimer == nil {
-		return
-	}
-	r.idleTimeoutCount = 0
-	r.startIdleTimeoutTimer(ctx, inputDuration...)
 }
 
 // stopIdleTimeoutTimer stops the idle timeout timer without resetting the

@@ -42,7 +42,7 @@ func (tc *knowledgeRetrievalToolCaller) argument(input map[string]interface{}) (
 
 func (t *knowledgeRetrievalToolCaller) Call(ctx context.Context, contextID, toolId string, args map[string]interface{}, communication internal_type.Communication) {
 	communication.OnPacket(ctx, internal_type.LLMToolCallPacket{
-		ToolID: toolId, Name: t.Name(), ContextID: contextID, Arguments: args,
+		ToolID: toolId, Name: t.Name(), ContextID: contextID, Arguments: internal_tool.StringifyArgs(args),
 	})
 	in, v, err := t.argument(args)
 	if err != nil || in == nil {

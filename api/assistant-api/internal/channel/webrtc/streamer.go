@@ -465,8 +465,8 @@ func (s *webrtcStreamer) buildGRPCResponse(msg internal_type.Stream) *protos.Web
 		resp.Data = &protos.WebTalkResponse_User{User: m}
 	case *protos.ConversationInterruption:
 		resp.Data = &protos.WebTalkResponse_Interruption{Interruption: m}
-	case *protos.ConversationDirective:
-		resp.Data = &protos.WebTalkResponse_Directive{Directive: m}
+	case *protos.ConversationToolCall:
+		resp.Data = &protos.WebTalkResponse_ToolCall{ToolCall: m}
 	case *protos.ConversationError:
 		resp.Data = &protos.WebTalkResponse_Error{Error: m}
 	case *protos.ConversationEvent:
@@ -584,8 +584,6 @@ func (s *webrtcStreamer) runGrpcReader() {
 		switch msg.GetRequest().(type) {
 		case *protos.WebTalkRequest_Initialization:
 			s.PushInput(msg.GetInitialization())
-			// Don't call handleConfigurationMessage here — the Talk() loop will
-			// trigger transport setup after Connect() completes via NotifyMode().
 		case *protos.WebTalkRequest_Configuration:
 			s.PushInput(msg.GetConfiguration())
 			s.handleConfigurationMessage(msg.GetConfiguration().GetStreamMode())
@@ -595,8 +593,8 @@ func (s *webrtcStreamer) runGrpcReader() {
 			s.PushInput(msg.GetMetadata())
 		case *protos.WebTalkRequest_Metric:
 			s.PushInput(msg.GetMetric())
-		case *protos.WebTalkRequest_Disconnection:
-			s.PushInput(msg.GetDisconnection())
+		case *protos.WebTalkRequest_ToolCallResult:
+			s.PushInput(msg.GetToolCallResult())
 		case *protos.WebTalkRequest_Signaling:
 			s.handleClientSignaling(msg.GetSignaling())
 		default:
@@ -793,9 +791,16 @@ func (s *webrtcStreamer) Send(response internal_type.Stream) error {
 			s.sendClear()
 		}
 		s.PushOutput(data)
-	case *protos.ConversationDirective:
+	case *protos.ConversationToolCall:
 		s.PushOutput(data)
-		if data.GetType() == protos.ConversationDirective_END_CONVERSATION {
+		if data.GetAction() == protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION {
+			s.PushInput(&protos.ConversationToolCallResult{
+					Id:     data.GetId(),
+				ToolId: data.GetToolId(),
+				Name:   data.GetName(),
+				Action: data.GetAction(),
+				Result: map[string]string{"status": "completed"},
+			})
 			s.PushDisconnection(protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL)
 		}
 	case *protos.ConversationError:

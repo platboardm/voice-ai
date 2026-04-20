@@ -148,12 +148,19 @@ func (exotel *exotelWebsocketStreamer) Send(response internal_type.Stream) error
 				exotel.Logger.Errorf("Error sending clear command:", err)
 			}
 		}
-	case *protos.ConversationDirective:
-		switch data.GetType() {
-		case protos.ConversationDirective_END_CONVERSATION:
+	case *protos.ConversationToolCall:
+		switch data.GetAction() {
+		case protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION:
 			exotel.Cancel()
-		case protos.ConversationDirective_TRANSFER_CONVERSATION:
+		case protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION:
 			exotel.Logger.Warnw("Call transfer not supported for Exotel")
+			if data.GetToolId() != "" {
+				exotel.PushInput(&protos.ConversationToolCallResult{
+					Id:     data.GetId(),
+					ToolId: data.GetToolId(), Name: data.GetName(), Action: data.GetAction(),
+					Result: map[string]string{"status": "failed", "reason": "transfer not supported for Exotel"},
+				})
+			}
 		}
 	}
 	return nil

@@ -304,7 +304,7 @@ func TestOnPacket_RoutesToCorrectChannel(t *testing.T) {
 		{"InterruptTTSPacket", internal_type.InterruptTTSPacket{ContextID: "c"}, "critical"},
 		{"InterruptLLMPacket", internal_type.InterruptLLMPacket{ContextID: "c"}, "critical"},
 		{"TurnChangePacket", internal_type.TurnChangePacket{ContextID: "c", PreviousContextID: "p"}, "critical"},
-		{"DirectivePacket", internal_type.DirectivePacket{ContextID: "c"}, "critical"},
+		{"LLMToolCallPacket_Action", internal_type.LLMToolCallPacket{ContextID: "c", Action: protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION}, "critical"},
 		{"InjectMessagePacket", internal_type.InjectMessagePacket{ContextID: "c"}, "output"},
 
 		// Input
@@ -335,8 +335,8 @@ func TestOnPacket_RoutesToCorrectChannel(t *testing.T) {
 		{"RecordAssistantAudioPacket", internal_type.RecordAssistantAudioPacket{ContextID: "c"}, "low"},
 		{"SaveMessagePacket", internal_type.SaveMessagePacket{ContextID: "c"}, "low"},
 		{"ConversationEventPacket", internal_type.ConversationEventPacket{ContextID: "c"}, "low"},
-		{"LLMToolCallPacket", internal_type.LLMToolCallPacket{ContextID: "c"}, "output"},
-		{"LLMToolResultPacket", internal_type.LLMToolResultPacket{ContextID: "c"}, "output"},
+		{"LLMToolCallPacket", internal_type.LLMToolCallPacket{ContextID: "c"}, "critical"},
+		{"LLMToolResultPacket", internal_type.LLMToolResultPacket{ContextID: "c"}, "critical"},
 		{"UserMessageMetricPacket", internal_type.UserMessageMetricPacket{ContextID: "c"}, "low"},
 		{"AssistantMessageMetricPacket", internal_type.AssistantMessageMetricPacket{ContextID: "c"}, "low"},
 	}
@@ -2431,8 +2431,8 @@ func TestBug_IdleTimeoutCount_ResetByInterruption(t *testing.T) {
 	require.Eventually(t, func() bool {
 		sent := streamer.getSent()
 		for _, msg := range sent {
-			if d, ok := msg.(*protos.ConversationDirective); ok {
-				if d.GetType() == protos.ConversationDirective_END_CONVERSATION {
+			if d, ok := msg.(*protos.ConversationToolCall); ok {
+				if d.GetAction() == protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION {
 					directiveFound = true
 					return true
 				}
@@ -2692,8 +2692,8 @@ func TestScenario_WelcomeThenIdleTimeoutsUntilDisconnect(t *testing.T) {
 	require.Eventually(t, func() bool {
 		sent := streamer.getSent()
 		for _, msg := range sent {
-			if d, ok := msg.(*protos.ConversationDirective); ok {
-				if d.GetType() == protos.ConversationDirective_END_CONVERSATION {
+			if d, ok := msg.(*protos.ConversationToolCall); ok {
+				if d.GetAction() == protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION {
 					directiveFound = true
 					return true
 				}
@@ -3226,9 +3226,9 @@ func TestDeadlock_CriticalChannel_SelfEnqueue(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		r.criticalCh <- packetEnvelope{
 			ctx: ctx,
-			pkt: internal_type.DirectivePacket{
+			pkt: internal_type.LLMToolCallPacket{
 				ContextID: fmt.Sprintf("fill-%d", i),
-				Directive: protos.ConversationDirective_END_CONVERSATION,
+				Action:    protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION,
 			},
 		}
 	}

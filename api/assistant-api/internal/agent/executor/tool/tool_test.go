@@ -67,7 +67,7 @@ func (s *stubToolCaller) ExecutionMethod() string                         { retu
 func (s *stubToolCaller) Call(ctx context.Context, contextID, toolId string, args map[string]interface{}, communication internal_type.Communication) {
 	s.called = true
 	communication.OnPacket(ctx, internal_type.LLMToolCallPacket{
-		ToolID: toolId, Name: s.name, ContextID: contextID, Arguments: args,
+		ToolID: toolId, Name: s.name, ContextID: contextID, Arguments: internal_tool.StringifyArgs(args),
 	})
 	communication.OnPacket(ctx, internal_type.LLMToolResultPacket{
 		ToolID:    toolId,
@@ -221,30 +221,29 @@ func TestExecuteAll_KnownTool_PacketOrderPreserved(t *testing.T) {
 	assert.Equal(t, "ctx-ord", tr.ContextID)
 }
 
-// directiveStubToolCaller simulates a tool that emits LLMToolCallPacket + DirectivePacket
+// actionStubToolCaller simulates a tool that emits a single LLMToolCallPacket with Action
 // (like end_of_conversation or transfer_call).
-type directiveStubToolCaller struct {
+type actionStubToolCaller struct {
 	name string
 }
 
-func (d *directiveStubToolCaller) Id() uint64                                      { return 2 }
-func (d *directiveStubToolCaller) Name() string                                    { return d.name }
-func (d *directiveStubToolCaller) Definition() (*protos.FunctionDefinition, error) { return nil, nil }
-func (d *directiveStubToolCaller) ExecutionMethod() string                         { return "stub" }
-func (d *directiveStubToolCaller) Call(ctx context.Context, contextID, toolId string, args map[string]interface{}, communication internal_type.Communication) {
+func (d *actionStubToolCaller) Id() uint64                                      { return 2 }
+func (d *actionStubToolCaller) Name() string                                    { return d.name }
+func (d *actionStubToolCaller) Definition() (*protos.FunctionDefinition, error) { return nil, nil }
+func (d *actionStubToolCaller) ExecutionMethod() string                         { return "stub" }
+func (d *actionStubToolCaller) Call(ctx context.Context, contextID, toolId string, args map[string]interface{}, communication internal_type.Communication) {
 	communication.OnPacket(ctx, internal_type.LLMToolCallPacket{
-		ToolID: toolId, Name: d.name, ContextID: contextID, Arguments: args,
-	})
-	communication.OnPacket(ctx, internal_type.DirectivePacket{
-		Directive: protos.ConversationDirective_END_CONVERSATION,
-		Arguments: map[string]interface{}{"tool_id": toolId},
+		ToolID:    toolId,
+		Name:      d.name,
 		ContextID: contextID,
+		Action:    protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION,
+		Arguments: internal_tool.StringifyArgs(args),
 	})
 }
 
-func TestExecuteAll_DirectiveTool_PacketOrderPreserved(t *testing.T) {
+func TestExecuteAll_ActionTool_PacketOrderPreserved(t *testing.T) {
 	logger, _ := commons.NewApplicationLogger()
-	stub := &directiveStubToolCaller{name: "end_tool"}
+	stub := &actionStubToolCaller{name: "end_tool"}
 	executor := &toolExecutor{
 		logger: logger,
 		tools:  map[string]internal_tool.ToolCaller{"end_tool": stub},
@@ -258,20 +257,11 @@ func TestExecuteAll_DirectiveTool_PacketOrderPreserved(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	pkts := collector.all()
-	require.Len(t, pkts, 2, "executor must not add extra packets for directive tools")
+	require.Len(t, pkts, 1, "action tool emits single LLMToolCallPacket with Action")
 
-	_, isCall := pkts[0].(internal_type.LLMToolCallPacket)
-	assert.True(t, isCall, "packet[0] must be LLMToolCallPacket")
-
-	dp, isDirective := pkts[1].(internal_type.DirectivePacket)
-	assert.True(t, isDirective, "packet[1] must be DirectivePacket")
-	assert.Equal(t, protos.ConversationDirective_END_CONVERSATION, dp.Directive)
-
-	// Verify no LLMToolResultPacket
-	for i, p := range pkts {
-		_, isResult := p.(internal_type.LLMToolResultPacket)
-		assert.False(t, isResult, "packet[%d] should not be LLMToolResultPacket for directive tools", i)
-	}
+	tc, ok := pkts[0].(internal_type.LLMToolCallPacket)
+	assert.True(t, ok, "packet[0] must be LLMToolCallPacket")
+	assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION, tc.Action)
 }
 
 func TestExecuteAll_MultipleTools_IndependentOrder(t *testing.T) {

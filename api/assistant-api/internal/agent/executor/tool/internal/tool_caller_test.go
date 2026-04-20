@@ -40,7 +40,17 @@ func TestJustResult_PassesThrough(t *testing.T) {
 	data := map[string]interface{}{"key": "value", "count": 42}
 	r := JustResult(data)
 	assert.Equal(t, "value", r["key"])
-	assert.Equal(t, 42, r["count"])
+	assert.Equal(t, "42", r["count"])
+}
+
+func TestJustResult_NestedObject(t *testing.T) {
+	data := map[string]interface{}{
+		"status": "SUCCESS",
+		"result": []string{"hello", "world"},
+	}
+	r := JustResult(data)
+	assert.Equal(t, "SUCCESS", r["status"])
+	assert.Equal(t, `["hello","world"]`, r["result"])
 }
 
 func TestToolCallResult_Result_MarshalError(t *testing.T) {
