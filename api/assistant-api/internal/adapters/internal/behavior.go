@@ -105,13 +105,8 @@ func (r *genericRequestor) initializeMaxSessionDuration(ctx context.Context, beh
 	}
 	timeoutDuration := time.Duration(*behavior.MaxSessionDuration) * time.Second
 	r.maxSessionTimer = time.AfterFunc(timeoutDuration, func() {
-		r.OnPacket(ctx, internal_type.LLMToolCallPacket{
-			ContextID: r.GetID(),
-			Action:    protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION,
-			Arguments: map[string]string{
-				"reason":           "max session duration reached",
-				"duration_seconds": fmt.Sprintf("%d", *behavior.MaxSessionDuration),
-			},
+		r.Notify(ctx, &protos.ConversationDisconnection{
+			Type: protos.ConversationDisconnection_DISCONNECTION_TYPE_MAX_DURATION,
 		})
 	})
 }
@@ -163,16 +158,8 @@ func (r *genericRequestor) onIdleTimeout(ctx context.Context) error {
 	// Check if max backoff retries reached
 	if behavior.IdleTimeoutBackoff != nil && *behavior.IdleTimeoutBackoff > 0 {
 		if r.idleTimeoutCount >= *behavior.IdleTimeoutBackoff {
-			args := map[string]string{
-				"reason": "idle timeout max retries reached",
-			}
-			if behavior.MaxSessionDuration != nil {
-				args["duration_seconds"] = fmt.Sprintf("%d", *behavior.MaxSessionDuration)
-			}
-			r.OnPacket(ctx, internal_type.LLMToolCallPacket{
-				ContextID: r.GetID(),
-				Action:    protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION,
-				Arguments: args,
+			r.Notify(ctx, &protos.ConversationDisconnection{
+				Type: protos.ConversationDisconnection_DISCONNECTION_TYPE_IDLE_TIMEOUT,
 			})
 			return nil
 		}

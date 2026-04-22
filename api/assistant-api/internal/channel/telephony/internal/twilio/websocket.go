@@ -154,6 +154,17 @@ func (tws *twilioWebsocketStreamer) Send(response internal_type.Stream) error {
 				tws.Logger.Errorf("Error sending clear command:", err)
 			}
 		}
+	case *protos.ConversationDisconnection:
+		if tws.GetConversationUuid() != "" {
+			if client, err := twilioClient(tws.VaultCredential()); err == nil {
+				params := &openapi.UpdateCallParams{}
+				params.SetStatus("completed")
+				client.Api.UpdateCall(tws.GetConversationUuid(), params)
+			}
+		}
+		if disc := tws.Disconnect(data.GetType()); disc != nil {
+			tws.Input(disc)
+		}
 	case *protos.ConversationToolCall:
 		switch data.GetAction() {
 		case protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION:
@@ -168,7 +179,9 @@ func (tws *twilioWebsocketStreamer) Send(response internal_type.Stream) error {
 						Action: data.GetAction(),
 						Result: map[string]string{"status": "failed", "reason": fmt.Sprintf("twilio client error: %v", err)},
 					})
-					tws.Cancel()
+					if disc := tws.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL); disc != nil {
+						tws.Input(disc)
+					}
 					return nil
 				}
 				params := &openapi.UpdateCallParams{}
@@ -182,7 +195,9 @@ func (tws *twilioWebsocketStreamer) Send(response internal_type.Stream) error {
 						Action: data.GetAction(),
 						Result: map[string]string{"status": "failed", "reason": fmt.Sprintf("end call failed: %v", err)},
 					})
-					tws.Cancel()
+					if disc := tws.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL); disc != nil {
+						tws.Input(disc)
+					}
 					return nil
 				}
 			}
@@ -193,7 +208,9 @@ func (tws *twilioWebsocketStreamer) Send(response internal_type.Stream) error {
 				Action: data.GetAction(),
 				Result: map[string]string{"status": "completed"},
 			})
-			tws.Cancel()
+			if disc := tws.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL); disc != nil {
+				tws.Input(disc)
+			}
 		case protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION:
 			to := data.GetArgs()["to"]
 			if to == "" || tws.GetConversationUuid() == "" {
@@ -314,4 +331,3 @@ func (tws *twilioWebsocketStreamer) handleError(message string, err error) error
 	tws.Logger.Error(message, "error", err.Error())
 	return err
 }
-

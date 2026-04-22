@@ -143,6 +143,15 @@ func (vng *vonageWebsocketStreamer) Send(response internal_type.Stream) error {
 			}
 			vng.writeMu.Unlock()
 		}
+	case *protos.ConversationDisconnection:
+		if vng.GetConversationUuid() != "" {
+			if cAuth, err := vonageAuth(vng.VaultCredential()); err == nil {
+				vonage.NewVoiceClient(cAuth).Hangup(vng.GetConversationUuid())
+			}
+		}
+		if disc := vng.Disconnect(data.GetType()); disc != nil {
+			vng.Input(disc)
+		}
 	case *protos.ConversationToolCall:
 		switch data.GetAction() {
 		case protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION:
@@ -154,7 +163,9 @@ func (vng *vonageWebsocketStreamer) Send(response internal_type.Stream) error {
 						Id: data.GetId(), ToolId: data.GetToolId(), Name: data.GetName(), Action: data.GetAction(),
 						Result: map[string]string{"status": "failed", "reason": fmt.Sprintf("vonage client error: %v", err)},
 					})
-					vng.Cancel()
+					if disc := vng.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL); disc != nil {
+						vng.Input(disc)
+					}
 					return nil
 				}
 				if _, _, err := vonage.NewVoiceClient(cAuth).Hangup(vng.GetConversationUuid()); err != nil {
@@ -163,7 +174,9 @@ func (vng *vonageWebsocketStreamer) Send(response internal_type.Stream) error {
 						Id: data.GetId(), ToolId: data.GetToolId(), Name: data.GetName(), Action: data.GetAction(),
 						Result: map[string]string{"status": "failed", "reason": fmt.Sprintf("hangup failed: %v", err)},
 					})
-					vng.Cancel()
+					if disc := vng.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL); disc != nil {
+						vng.Input(disc)
+					}
 					return nil
 				}
 			}
@@ -174,7 +187,9 @@ func (vng *vonageWebsocketStreamer) Send(response internal_type.Stream) error {
 				Action: data.GetAction(),
 				Result: map[string]string{"status": "completed"},
 			})
-			vng.Cancel()
+			if disc := vng.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL); disc != nil {
+				vng.Input(disc)
+			}
 		case protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION:
 			vng.Logger.Warnw("Vonage call transfer not yet implemented", "to", data.GetArgs()["to"])
 			vng.Input(&protos.ConversationToolCallResult{
@@ -217,4 +232,3 @@ func (vng *vonageWebsocketStreamer) Cancel() error {
 	vng.BaseStreamer.Cancel()
 	return nil
 }
-

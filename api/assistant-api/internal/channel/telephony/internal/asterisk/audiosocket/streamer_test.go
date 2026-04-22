@@ -80,7 +80,7 @@ func newTestStreamer(t *testing.T) (*Streamer, net.Conn) {
 }
 
 func TestSend_EndConversation_PushesToolCallResult(t *testing.T) {
-	as, remote := newTestStreamer(t)
+	as, _ := newTestStreamer(t)
 
 	toolCall := &protos.ConversationToolCall{
 		Id:     "call-123",
@@ -88,19 +88,6 @@ func TestSend_EndConversation_PushesToolCallResult(t *testing.T) {
 		Name:   "end_call",
 		Action: protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION,
 	}
-
-	// Read the hangup frame in a goroutine so the writer does not block.
-	frameCh := make(chan *Frame, 1)
-	errCh := make(chan error, 1)
-	go func() {
-		r := bufio.NewReader(remote)
-		frame, err := ReadFrame(r)
-		if err != nil {
-			errCh <- err
-			return
-		}
-		frameCh <- frame
-	}()
 
 	err := as.Send(toolCall)
 	require.NoError(t, err)
@@ -119,26 +106,25 @@ func TestSend_EndConversation_PushesToolCallResult(t *testing.T) {
 		t.Fatal("timed out waiting for ConversationToolCallResult on CriticalCh")
 	}
 
-	// 2. Verify a hangup frame was written to the connection.
+	// 1b. Verify the disconnection reason is emitted as TOOL.
 	select {
-	case frame := <-frameCh:
-		assert.Equal(t, FrameTypeHangup, frame.Type, "expected hangup frame type")
-		assert.Empty(t, frame.Payload, "hangup frame should have no payload")
-	case err := <-errCh:
-		t.Fatalf("error reading hangup frame: %v", err)
+	case msg := <-as.CriticalCh:
+		disc, ok := msg.(*protos.ConversationDisconnection)
+		require.True(t, ok, "expected ConversationDisconnection, got %T", msg)
+		assert.Equal(t, protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL, disc.GetType())
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for hangup frame on connection")
+		t.Fatal("timed out waiting for ConversationDisconnection on CriticalCh")
 	}
 
-	// 3. Verify the streamer is closed.
-	assert.True(t, as.closed.Load(), "streamer should be closed after end conversation")
+	select {
+	case <-as.Context().Done():
+		t.Fatal("streamer context should remain open; teardown is owned by Talk loop")
+	default:
+	}
 }
 
-func TestSend_EndConversation_ClosedIdempotent(t *testing.T) {
-	as, remote := newTestStreamer(t)
-
-	// Pre-close the streamer.
-	as.closed.Store(true)
+func TestSend_EndConversation_SecondCall_NoAdditionalDisconnection(t *testing.T) {
+	as, _ := newTestStreamer(t)
 
 	toolCall := &protos.ConversationToolCall{
 		Id:     "call-789",
@@ -147,17 +133,7 @@ func TestSend_EndConversation_ClosedIdempotent(t *testing.T) {
 		Action: protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION,
 	}
 
-	// Read whatever comes through so writeFrame does not block.
-	go func() {
-		buf := make([]byte, 1024)
-		for {
-			if _, err := remote.Read(buf); err != nil {
-				return
-			}
-		}
-	}()
-
-	// Send should still succeed (close() is idempotent via CompareAndSwap).
+	// First call emits tool result + disconnection.
 	err := as.Send(toolCall)
 	require.NoError(t, err)
 
@@ -170,6 +146,55 @@ func TestSend_EndConversation_ClosedIdempotent(t *testing.T) {
 		assert.Equal(t, map[string]string{"status": "completed"}, result.GetResult())
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for ConversationToolCallResult")
+	}
+
+	select {
+	case msg := <-as.CriticalCh:
+		disc, ok := msg.(*protos.ConversationDisconnection)
+		require.True(t, ok, "expected ConversationDisconnection, got %T", msg)
+		assert.Equal(t, protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL, disc.GetType())
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for ConversationDisconnection")
+	}
+
+	// Second call should still return nil, but no new disconnection should be emitted
+	// because BaseStreamer.Disconnect is idempotent.
+	err = as.Send(toolCall)
+	require.NoError(t, err)
+	select {
+	case msg := <-as.CriticalCh:
+		result, ok := msg.(*protos.ConversationToolCallResult)
+		require.True(t, ok, "expected ConversationToolCallResult, got %T", msg)
+		assert.Equal(t, "call-789", result.GetId())
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second ConversationToolCallResult")
+	}
+	select {
+	case msg := <-as.CriticalCh:
+		t.Fatalf("unexpected extra message after second end_conversation: %T", msg)
+	case <-time.After(200 * time.Millisecond):
+		// expected: no second disconnection packet
+	}
+}
+
+func TestSend_ConversationDisconnection_NoRequeueNoImmediateClose(t *testing.T) {
+	as, _ := newTestStreamer(t)
+
+	err := as.Send(&protos.ConversationDisconnection{
+		Type: protos.ConversationDisconnection_DISCONNECTION_TYPE_USER,
+	})
+	require.NoError(t, err)
+
+	select {
+	case msg := <-as.CriticalCh:
+		t.Fatalf("expected no requeued disconnection, got %T", msg)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	select {
+	case <-as.Context().Done():
+		t.Fatal("streamer context should remain open; teardown is owned by Talk loop")
+	default:
 	}
 }
 
@@ -212,11 +237,14 @@ func TestSend_TransferConversation_Unsupported(t *testing.T) {
 		t.Fatal("timed out waiting for ConversationToolCallResult")
 	}
 
-	// Streamer should NOT be closed for transfer failures.
-	assert.False(t, as.closed.Load(), "streamer should remain open after failed transfer")
+	select {
+	case <-as.Context().Done():
+		t.Fatal("streamer should remain open after failed transfer")
+	default:
+	}
 }
 
-func TestSend_TransferConversation_EmptyToolId_NoResult(t *testing.T) {
+func TestSend_TransferConversation_EmptyToolId_StillPushesFailedResult(t *testing.T) {
 	as, remote := newTestStreamer(t)
 
 	// Drain remote.
@@ -231,7 +259,7 @@ func TestSend_TransferConversation_EmptyToolId_NoResult(t *testing.T) {
 
 	toolCall := &protos.ConversationToolCall{
 		Id:     "call-xyz",
-		ToolId: "", // empty ToolId -- the guard in Send() skips the result
+		ToolId: "", // empty ToolId should still return a failed result
 		Name:   "transfer_call",
 		Action: protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION,
 	}
@@ -239,12 +267,17 @@ func TestSend_TransferConversation_EmptyToolId_NoResult(t *testing.T) {
 	err := as.Send(toolCall)
 	require.NoError(t, err)
 
-	// No result should be pushed when ToolId is empty.
+	// Transfer failure should still emit a failed result with empty ToolId.
 	select {
 	case msg := <-as.CriticalCh:
-		t.Fatalf("unexpected message on CriticalCh: %T", msg)
-	case <-time.After(200 * time.Millisecond):
-		// Expected: no message.
+		result, ok := msg.(*protos.ConversationToolCallResult)
+		require.True(t, ok, "expected ConversationToolCallResult, got %T", msg)
+		assert.Equal(t, "call-xyz", result.GetId())
+		assert.Equal(t, "", result.GetToolId())
+		assert.Equal(t, "failed", result.GetResult()["status"])
+		assert.Contains(t, result.GetResult()["reason"], "transfer not supported")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for ConversationToolCallResult")
 	}
 }
 
@@ -279,7 +312,11 @@ func TestSend_UnknownToolCallAction_NoOp(t *testing.T) {
 		// Expected: no message.
 	}
 
-	assert.False(t, as.closed.Load(), "streamer should remain open")
+	select {
+	case <-as.Context().Done():
+		t.Fatal("streamer should remain open")
+	default:
+	}
 }
 
 func TestSend_Interruption_ClearsOutputBuffer(t *testing.T) {

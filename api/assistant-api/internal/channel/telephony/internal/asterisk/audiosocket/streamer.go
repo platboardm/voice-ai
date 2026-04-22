@@ -14,7 +14,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	internal_audio "github.com/rapidaai/api/assistant-api/internal/audio"
 	callcontext "github.com/rapidaai/api/assistant-api/internal/callcontext"
@@ -35,7 +34,6 @@ type Streamer struct {
 	writer         *bufio.Writer
 	writeMu        sync.Mutex
 	audioProcessor *internal_asterisk.AudioProcessor
-	closed         atomic.Bool
 
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -151,17 +149,13 @@ func (as *Streamer) runFrameReader() {
 		}
 		frame, err := ReadFrame(as.reader)
 		if err != nil {
+			disconnectType := protos.ConversationDisconnection_DISCONNECTION_TYPE_UNSPECIFIED
 			if err == io.EOF {
-				if msg := as.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_USER); msg != nil {
-					as.Input(msg)
-				}
-				as.BaseStreamer.Cancel()
-				return
+				disconnectType = protos.ConversationDisconnection_DISCONNECTION_TYPE_USER
 			}
-			if msg := as.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_USER); msg != nil {
+			if msg := as.Disconnect(disconnectType); msg != nil {
 				as.Input(msg)
 			}
-			as.BaseStreamer.Cancel()
 			return
 		}
 		switch frame.Type {
@@ -191,13 +185,11 @@ func (as *Streamer) runFrameReader() {
 			if msg := as.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_USER); msg != nil {
 				as.Input(msg)
 			}
-			as.BaseStreamer.Cancel()
 			return
 		case FrameTypeError:
-			if msg := as.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_USER); msg != nil {
+			if msg := as.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_UNSPECIFIED); msg != nil {
 				as.Input(msg)
 			}
-			as.BaseStreamer.Cancel()
 			return
 		}
 	}
@@ -216,6 +208,11 @@ func (as *Streamer) Send(response internal_type.Stream) error {
 		if data.GetType() == protos.ConversationInterruption_INTERRUPTION_TYPE_WORD {
 			as.audioProcessor.ClearOutputBuffer()
 		}
+	case *protos.ConversationDisconnection:
+		_ = as.writeFrame(FrameTypeHangup, nil)
+		if disc := as.Disconnect(data.GetType()); disc != nil {
+			as.Input(disc)
+		}
 	case *protos.ConversationToolCall:
 		switch data.GetAction() {
 		case protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION:
@@ -227,7 +224,9 @@ func (as *Streamer) Send(response internal_type.Stream) error {
 				Result: map[string]string{"status": "completed"},
 			})
 			_ = as.writeFrame(FrameTypeHangup, nil)
-			return as.close()
+			if disc := as.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL); disc != nil {
+				as.Input(disc)
+			}
 		case protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION:
 			as.Logger.Warnw("Call transfer not supported for AudioSocket")
 			as.Input(&protos.ConversationToolCallResult{
@@ -238,26 +237,5 @@ func (as *Streamer) Send(response internal_type.Stream) error {
 		}
 	}
 
-	return nil
-}
-
-func (as *Streamer) close() error {
-	if !as.closed.CompareAndSwap(false, true) {
-		return nil
-	}
-	if as.outputCancel != nil {
-		as.outputCancel()
-	}
-	if as.cancel != nil {
-		as.cancel()
-	}
-	as.BaseStreamer.Cancel()
-	if as.conn != nil {
-		if as.writer != nil {
-			_ = as.writer.Flush()
-		}
-		_ = as.conn.Close()
-		as.conn = nil
-	}
 	return nil
 }

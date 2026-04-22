@@ -66,16 +66,24 @@ func TestSend_EndConversation_PushesToolCallResultBeforeCancel(t *testing.T) {
 		t.Fatal("Expected ConversationToolCallResult in CriticalCh but timed out")
 	}
 
-	// Context should be cancelled after Cancel() was called.
+	select {
+	case msg := <-exotel.CriticalCh:
+		disc, ok := msg.(*protos.ConversationDisconnection)
+		require.True(t, ok, "Expected ConversationDisconnection, got %T", msg)
+		assert.Equal(t, protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL, disc.GetType())
+	case <-time.After(time.Second):
+		t.Fatal("Expected ConversationDisconnection in CriticalCh but timed out")
+	}
+
+	// Context should remain open; teardown is owned by Talk loop.
 	select {
 	case <-exotel.Ctx.Done():
-		// expected
-	case <-time.After(time.Second):
-		t.Fatal("Expected context to be cancelled after Cancel()")
+		t.Fatal("streamer context should remain open")
+	default:
 	}
 }
 
-func TestSend_EndConversation_CancelsStreamer(t *testing.T) {
+func TestSend_EndConversation_DoesNotCancelStreamerImmediately(t *testing.T) {
 	exotel := newTestExotelStreamer(t)
 
 	toolCall := &protos.ConversationToolCall{
@@ -87,8 +95,7 @@ func TestSend_EndConversation_CancelsStreamer(t *testing.T) {
 
 	_ = exotel.Send(toolCall)
 
-	// Verify streamer is closed (Cancel sets closed to true).
-	assert.True(t, exotel.closed.Load(), "Streamer should be marked closed after Cancel()")
+	assert.False(t, exotel.closed.Load(), "streamer should remain open")
 }
 
 func TestSend_TransferConversation_PushesFailedResult(t *testing.T) {
@@ -128,7 +135,7 @@ func TestSend_TransferConversation_PushesFailedResult(t *testing.T) {
 	}
 }
 
-func TestSend_TransferConversation_NoToolId_NoResult(t *testing.T) {
+func TestSend_TransferConversation_NoToolId_StillPushesFailedResult(t *testing.T) {
 	exotel := newTestExotelStreamer(t)
 
 	toolCall := &protos.ConversationToolCall{
@@ -141,11 +148,16 @@ func TestSend_TransferConversation_NoToolId_NoResult(t *testing.T) {
 	err := exotel.Send(toolCall)
 	require.NoError(t, err)
 
-	// With empty ToolId, the code does not push a result.
+	// Transfer failure should still emit a failed result even when ToolId is empty.
 	select {
 	case msg := <-exotel.CriticalCh:
-		t.Fatalf("Expected no message in CriticalCh, but got %T", msg)
-	case <-time.After(100 * time.Millisecond):
-		// expected — no result pushed
+		result, ok := msg.(*protos.ConversationToolCallResult)
+		require.True(t, ok, "Expected ConversationToolCallResult, got %T", msg)
+		assert.Equal(t, "tc-no-tool", result.GetId())
+		assert.Equal(t, "", result.GetToolId())
+		assert.Equal(t, "failed", result.GetResult()["status"])
+		assert.Contains(t, result.GetResult()["reason"], "transfer not supported")
+	case <-time.After(time.Second):
+		t.Fatal("Expected ConversationToolCallResult in CriticalCh but timed out")
 	}
 }

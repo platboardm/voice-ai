@@ -62,7 +62,15 @@ func NewStreamer(ctx context.Context,
 
 	go func() {
 		<-streamerCtx.Done()
-		s.BaseStreamer.Cancel()
+		reason := protos.ConversationDisconnection_DISCONNECTION_TYPE_UNSPECIFIED
+		select {
+		case <-sipSession.ByeReceived():
+			reason = protos.ConversationDisconnection_DISCONNECTION_TYPE_USER
+		default:
+		}
+		if msg := s.Disconnect(reason); msg != nil {
+			s.Input(msg)
+		}
 	}()
 
 	rtpHandler := sipSession.GetRTPHandler()
@@ -158,13 +166,21 @@ func (s *Streamer) Send(response internal_type.Stream) error {
 		if data.Type == protos.ConversationInterruption_INTERRUPTION_TYPE_WORD {
 			s.audio.ClearOutputBuffer()
 		}
+	case *protos.ConversationDisconnection:
+		if disc := s.Disconnect(data.GetType()); disc != nil {
+			s.Input(disc)
+		}
+		s.endSession()
 	case *protos.ConversationToolCall:
 		switch data.GetAction() {
 		case protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION:
 			s.PushToolCallResult(data.GetId(), data.GetToolId(), data.GetName(), data.GetAction(), map[string]string{
 				"status": "completed",
 			})
-			return s.Close()
+			if disc := s.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL); disc != nil {
+				s.Input(disc)
+			}
+			s.endSession()
 		case protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION:
 			to := data.GetArgs()["to"]
 			if to == "" {
@@ -283,6 +299,15 @@ func (s *Streamer) SetOnTransferInitiated(fn func(target string)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onTransferInitiated = fn
+}
+
+func (s *Streamer) endSession() {
+	s.mu.RLock()
+	session := s.session
+	s.mu.RUnlock()
+	if session != nil && !s.transferring.Load() {
+		session.End()
+	}
 }
 
 // =============================================================================

@@ -7,9 +7,12 @@
 package internal_asterisk_websocket
 
 import (
+	"errors"
+	"io"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	channel_base "github.com/rapidaai/api/assistant-api/internal/channel/base"
 	internal_telephony_base "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/base"
 	"github.com/rapidaai/pkg/commons"
@@ -60,6 +63,15 @@ func TestSend_EndConversation_PushesToolCallResult(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for ConversationToolCallResult on CriticalCh")
 	}
+
+	select {
+	case msg := <-aws.CriticalCh:
+		disc, ok := msg.(*protos.ConversationDisconnection)
+		require.True(t, ok, "expected ConversationDisconnection, got %T", msg)
+		assert.Equal(t, protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL, disc.GetType())
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for ConversationDisconnection on CriticalCh")
+	}
 }
 
 func TestSend_EndConversation_CancelsStreamer(t *testing.T) {
@@ -75,19 +87,27 @@ func TestSend_EndConversation_CancelsStreamer(t *testing.T) {
 	err := aws.Send(toolCall)
 	require.NoError(t, err)
 
-	// Drain the result so we can check context cancellation.
+	// Drain the result and disconnection packets first.
 	select {
 	case <-aws.CriticalCh:
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for ConversationToolCallResult")
 	}
 
-	// After Cancel(), the context should be done.
+	select {
+	case msg := <-aws.CriticalCh:
+		disc, ok := msg.(*protos.ConversationDisconnection)
+		require.True(t, ok, "expected ConversationDisconnection, got %T", msg)
+		assert.Equal(t, protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL, disc.GetType())
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for ConversationDisconnection")
+	}
+
+	// Context should remain open; teardown is owned by Talk loop.
 	select {
 	case <-aws.Context().Done():
-		// expected
-	case <-time.After(time.Second):
-		t.Fatal("streamer context was not cancelled after end-conversation")
+		t.Fatal("streamer context should remain open after end-conversation")
+	default:
 	}
 }
 
@@ -139,4 +159,26 @@ func TestSend_UnhandledType_NoError(t *testing.T) {
 
 	err := aws.Send(msg)
 	assert.NoError(t, err)
+}
+
+func TestDisconnectTypeFromReadError(t *testing.T) {
+	assert.Equal(t,
+		protos.ConversationDisconnection_DISCONNECTION_TYPE_UNSPECIFIED,
+		disconnectTypeFromReadError(nil),
+	)
+
+	assert.Equal(t,
+		protos.ConversationDisconnection_DISCONNECTION_TYPE_USER,
+		disconnectTypeFromReadError(io.EOF),
+	)
+
+	assert.Equal(t,
+		protos.ConversationDisconnection_DISCONNECTION_TYPE_USER,
+		disconnectTypeFromReadError(&websocket.CloseError{Code: websocket.CloseNormalClosure}),
+	)
+
+	assert.Equal(t,
+		protos.ConversationDisconnection_DISCONNECTION_TYPE_UNSPECIFIED,
+		disconnectTypeFromReadError(errors.New("read failed")),
+	)
 }

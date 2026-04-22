@@ -467,6 +467,8 @@ func (s *webrtcStreamer) buildGRPCResponse(msg internal_type.Stream) *protos.Web
 		resp.Data = &protos.WebTalkResponse_Interruption{Interruption: m}
 	case *protos.ConversationToolCall:
 		resp.Data = &protos.WebTalkResponse_ToolCall{ToolCall: m}
+	case *protos.ConversationDisconnection:
+		resp.Data = &protos.WebTalkResponse_Disconnection{Disconnection: m}
 	case *protos.ConversationError:
 		resp.Data = &protos.WebTalkResponse_Error{Error: m}
 	case *protos.ConversationEvent:
@@ -543,20 +545,6 @@ func (s *webrtcStreamer) sendOffer(sdp string) {
 	})
 }
 
-func (s *webrtcStreamer) sendICECandidate(ice *webrtc_internal.ICECandidate) {
-	s.Output(&protos.ServerSignaling{
-		SessionId: s.sessionID,
-		Message: &protos.ServerSignaling_IceCandidate{
-			IceCandidate: &protos.ICECandidate{
-				Candidate:        ice.Candidate,
-				SdpMid:           ice.SDPMid,
-				SdpMLineIndex:    int32(ice.SDPMLineIndex),
-				UsernameFragment: ice.UsernameFragment,
-			},
-		},
-	})
-}
-
 func (s *webrtcStreamer) sendReady() {
 	s.Output(&protos.ServerSignaling{
 		SessionId: s.sessionID,
@@ -597,6 +585,10 @@ func (s *webrtcStreamer) runGrpcReader() {
 			s.Input(msg.GetMetric())
 		case *protos.WebTalkRequest_ToolCallResult:
 			s.Input(msg.GetToolCallResult())
+		case *protos.WebTalkRequest_Disconnection:
+			if disc := s.Disconnect(msg.GetDisconnection().GetType()); disc != nil {
+				s.Input(disc)
+			}
 		case *protos.WebTalkRequest_Signaling:
 			s.handleClientSignaling(msg.GetSignaling())
 		default:
@@ -826,6 +818,9 @@ func (s *webrtcStreamer) Send(response internal_type.Stream) error {
 		s.Output(data)
 	case *protos.ConversationDisconnection:
 		s.Output(data)
+		if disc := s.Disconnect(data.GetType()); disc != nil {
+			s.Input(disc)
+		}
 	case *protos.ConversationMetric:
 		s.Output(data)
 	}

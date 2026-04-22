@@ -9,7 +9,9 @@ package internal_asterisk_websocket
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -99,10 +101,9 @@ func (aws *asteriskWebsocketStreamer) runWebSocketReader() {
 	for {
 		messageType, message, err := conn.ReadMessage()
 		if err != nil {
-			if msg := aws.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_USER); msg != nil {
+			if msg := aws.Disconnect(disconnectTypeFromReadError(err)); msg != nil {
 				aws.Input(msg)
 			}
-			aws.BaseStreamer.Cancel()
 			return
 		}
 		switch messageType {
@@ -138,7 +139,6 @@ func (aws *asteriskWebsocketStreamer) runWebSocketReader() {
 				if msg := aws.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_USER); msg != nil {
 					aws.Input(msg)
 				}
-				aws.Cancel()
 				return
 			case "MEDIA_XON":
 				aws.audioProcessor.SetXON()
@@ -167,7 +167,6 @@ func (aws *asteriskWebsocketStreamer) runWebSocketReader() {
 			if msg := aws.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_USER); msg != nil {
 				aws.Input(msg)
 			}
-			aws.BaseStreamer.Cancel()
 			return
 		default:
 			aws.Logger.Warn("Received unsupported WebSocket message type", "type", messageType)
@@ -211,17 +210,28 @@ func (aws *asteriskWebsocketStreamer) Send(response internal_type.Stream) error 
 			}
 		}
 
+	case *protos.ConversationDisconnection:
+		aws.stopAudioProcessing()
+		if err := aws.hangupCall(); err != nil {
+			aws.Logger.Warnw("Failed to hang up call for disconnection", "error", err)
+		}
+		if disc := aws.Disconnect(data.GetType()); disc != nil {
+			aws.Input(disc)
+		}
 	case *protos.ConversationToolCall:
 		switch data.GetAction() {
 		case protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION:
 			aws.stopAudioProcessing()
-			if err := aws.sendCommand("HANGUP"); err != nil {
-				aws.Logger.Warn("Failed to send HANGUP via WebSocket, trying ARI API", "error", err)
-				if aws.channelName != "" {
-					if err := aws.hangupViaARI(); err != nil {
-						aws.Logger.Error("Failed to hangup via ARI API", "error", err)
-					}
-				}
+			if err := aws.hangupCall(); err != nil {
+				aws.Logger.Error("Failed to hang up call", "error", err)
+				aws.Input(&protos.ConversationToolCallResult{
+					Id:     data.GetId(),
+					ToolId: data.GetToolId(),
+					Name:   data.GetName(),
+					Action: data.GetAction(),
+					Result: map[string]string{"status": "failed", "reason": fmt.Sprintf("hangup failed: %v", err)},
+				})
+				return nil
 			}
 			aws.Input(&protos.ConversationToolCallResult{
 				Id:     data.GetId(),
@@ -230,7 +240,9 @@ func (aws *asteriskWebsocketStreamer) Send(response internal_type.Stream) error 
 				Action: data.GetAction(),
 				Result: map[string]string{"status": "completed"},
 			})
-			aws.Cancel()
+			if disc := aws.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL); disc != nil {
+				aws.Input(disc)
+			}
 		case protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION:
 			to := data.GetArgs()["to"]
 			if to == "" || aws.channelName == "" {
@@ -261,6 +273,33 @@ func (aws *asteriskWebsocketStreamer) Send(response internal_type.Stream) error 
 		}
 	}
 
+	return nil
+}
+
+func disconnectTypeFromReadError(err error) protos.ConversationDisconnection_DisconnectionType {
+	if err == nil {
+		return protos.ConversationDisconnection_DISCONNECTION_TYPE_UNSPECIFIED
+	}
+	if errors.Is(err, io.EOF) {
+		return protos.ConversationDisconnection_DISCONNECTION_TYPE_USER
+	}
+	var closeErr *websocket.CloseError
+	if errors.As(err, &closeErr) {
+		return protos.ConversationDisconnection_DISCONNECTION_TYPE_USER
+	}
+	return protos.ConversationDisconnection_DISCONNECTION_TYPE_UNSPECIFIED
+}
+
+func (aws *asteriskWebsocketStreamer) hangupCall() error {
+	if wsErr := aws.sendCommand("HANGUP"); wsErr != nil {
+		aws.Logger.Warn("Failed to send HANGUP via WebSocket, trying ARI API", "error", wsErr)
+		if aws.channelName == "" {
+			return wsErr
+		}
+		if ariErr := aws.hangupViaARI(); ariErr != nil {
+			return fmt.Errorf("ws hangup failed: %w; ari hangup failed: %w", wsErr, ariErr)
+		}
+	}
 	return nil
 }
 

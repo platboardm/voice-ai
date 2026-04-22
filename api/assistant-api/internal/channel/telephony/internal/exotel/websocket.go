@@ -152,6 +152,10 @@ func (exotel *exotelWebsocketStreamer) Send(response internal_type.Stream) error
 				exotel.Logger.Errorf("Error sending clear command:", err)
 			}
 		}
+	case *protos.ConversationDisconnection:
+		if disc := exotel.Disconnect(data.GetType()); disc != nil {
+			exotel.Input(disc)
+		}
 	case *protos.ConversationToolCall:
 		switch data.GetAction() {
 		case protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION:
@@ -162,7 +166,9 @@ func (exotel *exotelWebsocketStreamer) Send(response internal_type.Stream) error
 				Action: data.GetAction(),
 				Result: map[string]string{"status": "completed"},
 			})
-			exotel.Cancel()
+			if disc := exotel.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL); disc != nil {
+				exotel.Input(disc)
+			}
 		case protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION:
 			exotel.Logger.Warnw("Call transfer not supported for Exotel")
 			exotel.Input(&protos.ConversationToolCallResult{

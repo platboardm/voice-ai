@@ -53,8 +53,8 @@ func TestBuildGRPCResponse_Disconnection(t *testing.T) {
 
 	msg := &protos.ConversationDisconnection{}
 	resp := s.buildGRPCResponse(msg)
-	// Disconnection is not in the switch — returns nil
-	assert.Nil(t, resp)
+	require.NotNil(t, resp)
+	assert.NotNil(t, resp.GetDisconnection())
 }
 
 func TestBuildGRPCResponse_AssistantText(t *testing.T) {

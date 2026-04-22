@@ -110,9 +110,18 @@ func TestSend_EndConversation_PushesToolCallResultBeforeCancel(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Expected ConversationToolCallResult in CriticalCh but timed out")
 	}
+
+	select {
+	case msg := <-tws.CriticalCh:
+		disc, ok := msg.(*protos.ConversationDisconnection)
+		require.True(t, ok, "Expected ConversationDisconnection, got %T", msg)
+		assert.Equal(t, protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL, disc.GetType())
+	case <-time.After(time.Second):
+		t.Fatal("Expected ConversationDisconnection in CriticalCh but timed out")
+	}
 }
 
-func TestSend_EndConversation_CancelsStreamer(t *testing.T) {
+func TestSend_EndConversation_DoesNotCancelStreamerImmediately(t *testing.T) {
 	tws, cleanup := newTestTwilioStreamer(t)
 	defer cleanup()
 
@@ -132,15 +141,22 @@ func TestSend_EndConversation_CancelsStreamer(t *testing.T) {
 		t.Fatal("timed out waiting for ConversationToolCallResult")
 	}
 
-	// Context should be cancelled after Cancel() was called.
 	select {
-	case <-tws.Ctx.Done():
-		// expected
+	case msg := <-tws.CriticalCh:
+		disc, ok := msg.(*protos.ConversationDisconnection)
+		require.True(t, ok, "Expected ConversationDisconnection, got %T", msg)
+		assert.Equal(t, protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL, disc.GetType())
 	case <-time.After(time.Second):
-		t.Fatal("Expected context to be cancelled after Cancel()")
+		t.Fatal("timed out waiting for ConversationDisconnection")
 	}
 
-	assert.True(t, tws.closed.Load(), "Streamer should be marked closed after Cancel()")
+	// Context should remain open; teardown is owned by Talk loop.
+	select {
+	case <-tws.Ctx.Done():
+		t.Fatal("streamer context should remain open")
+	default:
+	}
+	assert.False(t, tws.closed.Load(), "streamer should remain open")
 }
 
 func TestSend_TransferConversation_MissingTarget(t *testing.T) {
