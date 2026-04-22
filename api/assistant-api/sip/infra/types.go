@@ -8,12 +8,17 @@ package sip_infra
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
+	"strings"
 	"time"
 
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/types"
+	"github.com/rapidaai/protos"
 )
 
 // SIP-specific errors
@@ -268,6 +273,28 @@ const (
 	EventTypeRTPStopped EventType = "rtp_stopped"
 )
 
+// =============================================================================
+// Bridge Transfer Constants
+// =============================================================================
+
+const (
+	// BridgeCallTimeout is the maximum time to wait for the transfer target to answer.
+	BridgeCallTimeout = 30 * time.Second
+
+	// BridgeSafetyTimeout tears down the bridge if neither side hangs up.
+	BridgeSafetyTimeout = 5 * time.Minute
+
+	// MetadataBridgeTransferTarget is the session metadata key set by the streamer
+	// when a TRANSFER_CONVERSATION directive is received. The engine reads this
+	// after Talk() returns to orchestrate the bridge.
+	MetadataBridgeTransferTarget = "bridge_transfer_target"
+
+	// MetadataBridgeTransferStatus is set by executeBridgeTransfer to indicate
+	// the outcome. Values: "completed" or "failed". Read by media.go to emit
+	// the correct transfer event.
+	MetadataBridgeTransferStatus = "bridge_transfer_status"
+)
+
 // Event represents events from SIP stack
 type Event struct {
 	Type      EventType              `json:"type"`
@@ -311,4 +338,114 @@ type SIPSession struct {
 	Config      *Config
 	Streamer    internal_type.Streamer
 	Cancel      context.CancelFunc
+}
+
+// ParseConfigFromVault extracts SIP provider credentials from a vault credential.
+// Handles: sip_uri, sip_server, sip_port, sip_username, sip_password, sip_realm,
+// sip_domain, sip_caller_id, sip_headers (JSON string).
+// Does NOT set operational fields (transport, RTP range) — call ApplyOperationalDefaults after.
+func ParseConfigFromVault(vaultCredential *protos.VaultCredential) (*Config, error) {
+	if vaultCredential == nil || vaultCredential.GetValue() == nil {
+		return nil, fmt.Errorf("vault credential is required")
+	}
+
+	credMap := vaultCredential.GetValue().AsMap()
+	cfg := &Config{}
+
+	// Parse sip_uri → server + port (e.g. "sip:192.168.1.5:5060")
+	if sipURI, ok := credMap["sip_uri"].(string); ok && sipURI != "" {
+		raw := strings.TrimPrefix(strings.TrimPrefix(sipURI, "sips:"), "sip:")
+		host, portStr, err := net.SplitHostPort(raw)
+		if err != nil {
+			cfg.Server = raw
+		} else {
+			cfg.Server = host
+			if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+				cfg.Port = p
+			}
+		}
+	}
+
+	if server, ok := credMap["sip_server"].(string); ok && server != "" {
+		cfg.Server = server
+	}
+	if cfg.Port <= 0 {
+		cfg.Port = parsePortValue(credMap["sip_port"])
+	}
+	if username, ok := credMap["sip_username"].(string); ok {
+		cfg.Username = username
+	}
+	if password, ok := credMap["sip_password"].(string); ok {
+		cfg.Password = password
+	}
+	if realm, ok := credMap["sip_realm"].(string); ok {
+		cfg.Realm = realm
+	}
+	if domain, ok := credMap["sip_domain"].(string); ok {
+		cfg.Domain = domain
+	}
+	if callerID, ok := credMap["sip_caller_id"].(string); ok {
+		cfg.CallerID = callerID
+	}
+	if headersRaw, ok := credMap["sip_headers"].(string); ok && headersRaw != "" {
+		parsed := make(map[string]string)
+		if err := json.Unmarshal([]byte(headersRaw), &parsed); err == nil {
+			cfg.CustomHeaders = parsed
+		}
+	}
+
+	return cfg, nil
+}
+
+func parsePortValue(v any) int {
+	switch p := v.(type) {
+	case float64:
+		if int(p) > 0 && int(p) <= 65535 {
+			return int(p)
+		}
+	case string:
+		if port, err := strconv.Atoi(p); err == nil && port > 0 && port <= 65535 {
+			return port
+		}
+	}
+	return 0
+}
+
+// NormalizeDID normalizes a phone number to a canonical form for deduplication.
+// Numbers longer than 5 digits get a "+" prefix (E.164); shorter ones (extensions) are left as-is.
+func NormalizeDID(did string) string {
+	did = strings.TrimSpace(did)
+	if did == "" {
+		return did
+	}
+	stripped := strings.TrimPrefix(did, "+")
+	if len(stripped) > 5 {
+		return "+" + stripped
+	}
+	return stripped
+}
+
+// ExtractDIDFromURI extracts the user part from a SIP URI as a phone number (DID).
+// Strips URI parameters (e.g. ;user=phone) that some providers append.
+func ExtractDIDFromURI(uri string) string {
+	raw := strings.TrimPrefix(strings.TrimPrefix(uri, "sip:"), "sips:")
+	parts := strings.SplitN(raw, "@", 2)
+	if len(parts) == 0 || parts[0] == "" {
+		return ""
+	}
+	user := parts[0]
+	// Strip URI parameters (e.g. "+15551234567;user=phone" → "+15551234567")
+	if idx := strings.IndexByte(user, ';'); idx >= 0 {
+		user = user[:idx]
+	}
+	// Skip credential pairs (assistantID:apiKey)
+	if strings.Contains(user, ":") {
+		return ""
+	}
+	// Normalize to E.164: add "+" prefix for phone numbers
+	if len(user) > 5 && user[0] != '+' {
+		user = "+" + user
+	}
+
+	return user
 }

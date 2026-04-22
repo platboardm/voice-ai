@@ -17,7 +17,9 @@ import (
 
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
+	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	"github.com/rapidaai/pkg/commons"
+	"github.com/rapidaai/pkg/types"
 	"github.com/rapidaai/protos"
 	"github.com/redis/go-redis/v9"
 )
@@ -32,17 +34,13 @@ const (
 )
 
 // SIPRequestContext contains information about an incoming SIP request.
-// Used by the middleware chain to authenticate and resolve config for every
-// SIP request (INVITE, REGISTER, BYE, etc.), not just INVITE.
-//
-// URI format: sip:{assistantID}:{apiKey}@aws.ap-south-east-01.rapida.ai
+// Used by the middleware chain to resolve config for every SIP request.
 //
 // Middleware enriches this context as it flows through the chain:
 //
-//	CredentialMiddleware → parses URI, sets APIKey + AssistantID
-//	AuthMiddleware       → validates API key, sets Extra["auth"]
-//	AssistantMiddleware  → loads assistant, sets Extra["assistant"]
-//	VaultConfigMiddleware→ fetches SIP config, sets Extra["sip_config"]
+//	routingMiddleware   → resolves assistant by DID lookup, sets Extra["auth"]
+//	assistantMiddleware → loads assistant entity, sets Extra["assistant"]
+//	vaultConfigResolver → fetches SIP config from vault, sets Extra["sip_config"]
 type SIPRequestContext struct {
 	Method  string // SIP method (INVITE, REGISTER, BYE, etc.)
 	CallID  string
@@ -120,10 +118,7 @@ type ConfigResolver func(ctx *SIPRequestContext) (*InviteResult, error)
 //
 // Example chain for INVITE:
 //
-//	CredentialMiddleware → AuthMiddleware → AssistantMiddleware → VaultConfigMiddleware
-//
-// For non-INVITE requests (BYE, REGISTER, OPTIONS), only credential parsing
-// and auth validation are needed.
+//	routingMiddleware → assistantMiddleware → vaultConfigResolver
 type Middleware func(ctx *SIPRequestContext, next func() (*InviteResult, error)) (*InviteResult, error)
 
 // MiddlewareChain composes a slice of Middleware into a single ConfigResolver.
@@ -413,7 +408,7 @@ func (s *Server) Start() error {
 	go func() {
 		err := s.server.ListenAndServe(s.ctx, transport, listenAddr)
 		if err != nil && s.state.Load() == int32(ServerStateRunning) {
-			s.logger.Error("SIP server stopped unexpectedly",
+			s.logger.Errorw("SIP server stopped unexpectedly",
 				"error", err,
 				"address", listenAddr)
 			s.state.Store(int32(ServerStateStopped))
@@ -472,8 +467,8 @@ func (s *Server) SetConfigResolver(resolver ConfigResolver) {
 // Example:
 //
 //	server.SetMiddlewares(
-//	    []Middleware{CredentialMiddleware, authMiddleware, assistantMiddleware},
-//	    vaultConfigFinalHandler,
+//	    []Middleware{routingMiddleware, assistantMiddleware},
+//	    vaultConfigResolver,
 //	)
 func (s *Server) SetMiddlewares(middlewares []Middleware, final ConfigResolver) {
 	s.SetConfigResolver(MiddlewareChain(middlewares, final))
@@ -493,6 +488,16 @@ func (s *Server) AllocateRTPPort() (int, error) {
 // ReleaseRTPPort returns an RTP port to the shared pool.
 func (s *Server) ReleaseRTPPort(port int) {
 	s.rtpAllocator.Release(port)
+}
+
+// Client returns the underlying sipgo client for outbound requests (e.g., REGISTER).
+func (s *Server) Client() *sipgo.Client {
+	return s.client
+}
+
+// ListenConfig returns the shared server listen configuration.
+func (s *Server) GetListenConfig() *ListenConfig {
+	return s.listenConfig
 }
 
 // SessionCount returns the number of active sessions
@@ -560,8 +565,8 @@ func (s *Server) handleInvite(req *sip.Request, tx sip.ServerTransaction) {
 		sdpInfo = &SDPMediaInfo{PreferredCodec: &CodecPCMU}
 	}
 
-	// Authenticate and resolve tenant-specific config via middleware chain.
-	// The chain: CredentialMiddleware → AuthMiddleware → AssistantMiddleware → VaultConfigMiddleware
+	// Resolve tenant-specific config via middleware chain.
+	// The chain: routingMiddleware → assistantMiddleware → vaultConfigResolver
 	// Each middleware enriches the SIPRequestContext; the final handler returns the InviteResult.
 	s.mu.RLock()
 	resolver := s.configResolver
@@ -580,7 +585,7 @@ func (s *Server) handleInvite(req *sip.Request, tx sip.ServerTransaction) {
 		}
 		result, err := resolver(reqCtx)
 		if err != nil {
-			s.logger.Error("SIP authentication/config resolution failed", "error", err, "call_id", callID)
+			s.logger.Errorw("SIP authentication/config resolution failed", "error", err, "call_id", callID)
 			s.sendResponse(tx, req, 500)
 			return
 		}
@@ -603,7 +608,7 @@ func (s *Server) handleInvite(req *sip.Request, tx sip.ServerTransaction) {
 
 	// Reject if no config was resolved — all config must be explicitly provided
 	if tenantConfig == nil {
-		s.logger.Error("No SIP config resolved for call, rejecting", "call_id", callID)
+		s.logger.Errorw("No SIP config resolved for call, rejecting", "call_id", callID)
 		s.sendResponse(tx, req, 500)
 		return
 	}
@@ -635,12 +640,12 @@ func (s *Server) handleInvite(req *sip.Request, tx sip.ServerTransaction) {
 		CallID:          callID,
 		Codec:           negotiatedCodec,
 		Logger:          s.logger,
-		Auth:            resolvedExtra["auth"],
-		Assistant:       resolvedExtra["assistant"],
+		Auth:            resolvedExtra["auth"].(types.SimplePrinciple),
+		Assistant:       resolvedExtra["assistant"].(*internal_assistant_entity.Assistant),
 		VaultCredential: vaultCredential,
 	})
 	if err != nil {
-		s.logger.Error("Failed to create session", "error", err, "call_id", callID)
+		s.logger.Errorw("Failed to create session", "error", err, "call_id", callID)
 		s.sendResponse(tx, req, 500)
 		return
 	}
@@ -688,7 +693,7 @@ func (s *Server) handleInvite(req *sip.Request, tx sip.ServerTransaction) {
 	// Allocate an RTP port from the shared pool
 	rtpPort, err := s.rtpAllocator.Allocate()
 	if err != nil {
-		s.logger.Error("No RTP ports available", "error", err, "call_id", callID)
+		s.logger.Errorw("No RTP ports available", "error", err, "call_id", callID)
 		s.removeSession(callID)
 		s.sendResponse(tx, req, 503) // Service Unavailable
 		return
@@ -708,7 +713,7 @@ func (s *Server) handleInvite(req *sip.Request, tx sip.ServerTransaction) {
 	})
 	if err != nil {
 		s.rtpAllocator.Release(rtpPort)
-		s.logger.Error("Failed to create RTP handler", "error", err, "call_id", callID)
+		s.logger.Errorw("Failed to create RTP handler", "error", err, "call_id", callID)
 		s.removeSession(callID)
 		s.sendResponse(tx, req, 500)
 		return
@@ -753,13 +758,12 @@ func (s *Server) handleInvite(req *sip.Request, tx sip.ServerTransaction) {
 	}
 	session.SetState(CallStateConnected)
 
-	// Register the onDisconnect callback so that closing the session sends a SIP BYE.
-	// Captures the server reference in the closure — the session itself doesn't need
-	// to know about SIP signaling details.
+	// Register the onDisconnect callback — sends SIP BYE and removes from session map.
+	// Called by session.End() before RTP/context cleanup. Does NOT call session.End()
+	// (that would recurse). The session owns the full teardown sequence.
 	session.SetOnDisconnect(func(sess *Session) {
-		if err := s.EndCall(sess); err != nil {
-			s.logger.Warnw("onDisconnect: EndCall failed", "error", err, "call_id", callID)
-		}
+		s.sendBye(sess)
+		s.removeSession(callID)
 	})
 
 	s.logger.Infow("SIP call answered",
@@ -775,7 +779,7 @@ func (s *Server) handleInvite(req *sip.Request, tx sip.ServerTransaction) {
 
 	if onInvite != nil {
 		if err := onInvite(session, fromURI, toURI); err != nil {
-			s.logger.Error("INVITE handler failed", "error", err, "call_id", callID)
+			s.logger.Errorw("INVITE handler failed", "error", err, "call_id", callID)
 			s.notifyError(session, err)
 		}
 	}
@@ -1064,6 +1068,9 @@ func (s *Server) handleBye(req *sip.Request, tx sip.ServerTransaction) {
 		}
 	}
 
+	// Remote sent BYE — clear onDisconnect so session.End() does NOT send
+	// BYE back. The remote already knows the call is over.
+	session.ClearOnDisconnect()
 	session.End()
 	s.logger.Infow("SIP call ended (BYE processed)", "call_id", callID, "duration", info.Duration)
 }
@@ -1095,6 +1102,9 @@ func (s *Server) handleCancel(req *sip.Request, tx sip.ServerTransaction) {
 		}
 	}
 
+	// CANCEL is for an unanswered INVITE — clear onDisconnect so End()
+	// does not attempt to send BYE (no dialog established yet).
+	session.ClearOnDisconnect()
 	session.End()
 	s.sendResponse(tx, req, 200) // OK
 	s.logger.Infow("SIP call cancelled", "call_id", callID)
@@ -1262,7 +1272,7 @@ func (s *Server) handleSubscribe(req *sip.Request, tx sip.ServerTransaction) {
 		"event", eventHdr)
 	resp := sip.NewResponseFromRequest(req, 489, "Bad Event", nil)
 	if err := tx.Respond(resp); err != nil {
-		s.logger.Error("Failed to send 489 for SUBSCRIBE", "error", err, "call_id", callID)
+		s.logger.Errorw("Failed to send 489 for SUBSCRIBE", "error", err, "call_id", callID)
 	}
 }
 
@@ -1314,7 +1324,7 @@ func (s *Server) handleUnknownRequest(req *sip.Request, tx sip.ServerTransaction
 				"from", fromUser)
 			resp := sip.NewResponseFromRequest(req, 489, "Bad Event", nil)
 			if err := tx.Respond(resp); err != nil {
-				s.logger.Error("Failed to send 489 response", "error", err)
+				s.logger.Errorw("Failed to send 489 response", "error", err)
 			}
 		} else {
 			s.logger.Warnw("Unknown SIP method received (no session) — rejecting",
@@ -1329,7 +1339,7 @@ func (s *Server) handleUnknownRequest(req *sip.Request, tx sip.ServerTransaction
 func (s *Server) sendResponse(tx sip.ServerTransaction, req *sip.Request, statusCode int) {
 	resp := sip.NewResponseFromRequest(req, statusCode, "", nil)
 	if err := tx.Respond(resp); err != nil {
-		s.logger.Error("Failed to send SIP response",
+		s.logger.Errorw("Failed to send SIP response",
 			"error", err,
 			"status", statusCode,
 			"call_id", req.CallID().Value())
@@ -1363,7 +1373,7 @@ func (s *Server) sendResponseWithSDPBody(tx sip.ServerTransaction, req *sip.Requ
 	}
 
 	if err := tx.Respond(resp); err != nil {
-		s.logger.Error("Failed to send SIP response with SDP",
+		s.logger.Errorw("Failed to send SIP response with SDP",
 			"error", err,
 			"call_id", req.CallID().Value())
 	}
@@ -1384,267 +1394,89 @@ func (s *Server) GetSession(callID string) (*Session, bool) {
 //
 // This ensures the remote PBX/provider properly tears down the call leg
 // (e.g., Asterisk removes from bridge and frees channel).
+// EndCall terminates a call. Delegates to session.End() which owns all teardown:
+// BYE (via onDisconnect), RTP stop, context cancel, state transition.
 func (s *Server) EndCall(session *Session) error {
 	if session == nil {
 		return fmt.Errorf("session is nil")
 	}
+	session.End()
+	return nil
+}
 
+// sendBye sends SIP BYE to the remote party via the appropriate dialog session.
+// Called by the onDisconnect callback during session.End().
+func (s *Server) sendBye(session *Session) {
 	callID := session.GetCallID()
 
-	// For outbound calls, send BYE via the UAC dialog session.
-	// dialogClientSession.Bye() constructs a proper in-dialog BYE with correct
-	// To/From tags, CSeq, and Route headers derived from the dialog state.
 	if ds := session.GetDialogClientSession(); ds != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := ds.Bye(ctx); err != nil {
 			s.logger.Warnw("Failed to send BYE for outbound call",
-				"call_id", callID,
-				"error", err)
+				"call_id", callID, "error", err)
 		} else {
-			s.logger.Infow("Sent BYE for outbound call",
-				"call_id", callID)
+			s.logger.Infow("Sent BYE for outbound call", "call_id", callID)
 		}
 	}
 
-	// For inbound calls, send BYE via the UAS dialog session.
-	// dialogServerSession.Bye() constructs a BYE using the original INVITE's
-	// Contact, To/From tags, and Record-Route headers to properly route the
-	// request back to the caller.
 	if ds := session.GetDialogServerSession(); ds != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := ds.Bye(ctx); err != nil {
 			s.logger.Warnw("Failed to send BYE for inbound call",
-				"call_id", callID,
-				"error", err)
+				"call_id", callID, "error", err)
 		} else {
-			s.logger.Infow("Sent BYE for inbound call",
-				"call_id", callID)
+			s.logger.Infow("Sent BYE for inbound call", "call_id", callID)
 		}
 	}
+}
 
-	// Remove session from active sessions (releases RTP port)
-	s.removeSession(callID)
-
-	session.End()
-	return nil
+// MakeCallOptions holds the typed context for an outbound call.
+type MakeCallOptions struct {
+	Auth            types.SimplePrinciple
+	Assistant       *internal_assistant_entity.Assistant
+	ConversationID  uint64
+	VaultCredential *protos.VaultCredential
 }
 
 // MakeCall initiates an outbound SIP call using the DialogClientCache.
 // The cache stores the dialog so incoming BYE/re-INVITE are properly routed
 // to the correct DialogClientSession via handleBye → dialogClientCache.ReadBye.
-func (s *Server) MakeCall(ctx context.Context, cfg *Config, toURI, fromURI string, metadata map[string]interface{}) (*Session, error) {
+func (s *Server) MakeCall(ctx context.Context, cfg *Config, toURI, fromURI string, opts MakeCallOptions) (*Session, error) {
 	if s.state.Load() != int32(ServerStateRunning) {
 		return nil, fmt.Errorf("SIP server is not running")
 	}
 
-	// Allocate an RTP port from the shared pool
-	rtpPort, err := s.rtpAllocator.Allocate()
+	invite, err := s.prepareOutboundInvite(ctx, cfg, toURI, fromURI)
 	if err != nil {
-		return nil, fmt.Errorf("no RTP ports available: %w", err)
+		return nil, err
 	}
 
-	// Create RTP handler for outbound call.
-	// IMPORTANT: Bind to the local/bind address (0.0.0.0 or local interface),
-	// NOT the external/public IP. The external IP is only advertised in SDP so
-	// the remote peer knows where to send its RTP. The OS routes outgoing UDP
-	// packets through the correct interface automatically.
-	// Binding to an external IP that isn't on a local interface causes
-	// net.ListenUDP to fail, and even if the external IP happens to be local,
-	// binding to 0.0.0.0 is more robust (works in Docker, VMs, multi-homed hosts).
-	rtpBindIP := s.listenConfig.GetBindAddress()
-	rtpHandler, err := NewRTPHandler(ctx, &RTPConfig{
-		LocalIP:     rtpBindIP,
-		LocalPort:   rtpPort,
-		PayloadType: CodecPCMU.PayloadType,
-		ClockRate:   CodecPCMU.ClockRate,
-		Logger:      s.logger,
-	})
-	if err != nil {
-		s.rtpAllocator.Release(rtpPort)
-		return nil, fmt.Errorf("failed to create RTP handler: %w", err)
-	}
-
-	_, localPort := rtpHandler.LocalAddr()
-	externalIP := s.listenConfig.GetExternalIP()
-
-	s.logger.Infow("MakeCall SDP",
-		"external_ip", externalIP,
-		"rtp_bind_ip", rtpBindIP,
-		"rtp_local_port", localPort,
-		"listen_config_external_ip", s.listenConfig.ExternalIP,
-		"listen_config_address", s.listenConfig.Address)
-
-	// Build SDP offer — advertise external IP so remote peer can reach us
-	sdpBody := s.GenerateSDP(DefaultSDPConfig(externalIP, localPort))
-
-	s.logger.Debugw("Outbound INVITE SDP offer",
-		"external_ip", externalIP,
-		"rtp_port", localPort,
-		"sdp_body", sdpBody)
-
-	scheme := "sip"
-	if cfg.Transport == TransportTLS {
-		scheme = "sips"
-	}
-
-	// Build recipient URI — target the SIP server/proxy (works for all providers)
-	recipient := sip.Uri{
-		Scheme: scheme,
-		Host:   cfg.Server,
-		Port:   cfg.Port,
-		User:   toURI,
-	}
-	// Add transport parameter for TCP/TLS so the proxy routes correctly
-	if cfg.Transport == TransportTLS || cfg.Transport == TransportTCP {
-		if recipient.UriParams == nil {
-			recipient.UriParams = sip.NewParams()
-		}
-		recipient.UriParams.Add("transport", string(cfg.Transport))
-	}
-
-	// Build From header:
-	//   - User: CallerID if set (cloud providers use their DID), else cfg.Username (auth identity).
-	//     Self-hosted PBX (Asterisk/FreeSWITCH) should leave CallerID empty so that
-	//     the From user defaults to cfg.Username — this is critical because Asterisk
-	//     PJSIP resolves the endpoint from the From URI, and a mismatch between
-	//     From user and auth username causes "Failed to authenticate" errors.
-	//   - DisplayName: fromURI (shown as caller name / presentation number)
-	//   - Domain: cfg.Domain if set (cloud providers use their domain), else cfg.Server
-	fromDomain := cfg.Domain
-	if fromDomain == "" {
-		fromDomain = cfg.Server
-	}
-
-	// Resolve the From header user identity (standard SIP: phone number in From URI,
-	// auth credentials go in Authorization header via digest auth separately).
-	// Priority: 1. CallerID override (Asterisk/PBX that match endpoint by From user)
-	//           2. fromURI — the caller's phone number (standard SIP behavior)
-	//           3. Username — fallback to auth identity
-	fromUser := strings.TrimSpace(fromURI)
-	if cfg.CallerID != "" {
-		fromUser = cfg.CallerID
-	}
-	if fromUser == "" {
-		fromUser = cfg.Username
-	}
-	if fromUser == "" {
-		rtpHandler.Stop()
-		s.rtpAllocator.Release(rtpPort)
-		return nil, fmt.Errorf("SIP From user is empty: fromPhone, sip_caller_id, or sip_username must be set")
-	}
-
-	fromHDR := &sip.FromHeader{
-		DisplayName: fromURI,
-		Address: sip.Uri{
-			Scheme: scheme,
-			User:   fromUser,
-			Host:   fromDomain,
-		},
-		Params: sip.NewParams(),
-	}
-	fromHDR.Params.Add("tag", sip.GenerateTagN(16))
-
-	// Build headers for the INVITE. P-Asserted-Identity conveys the actual caller ID
-	// number independently of the From URI (which carries the auth username for provider
-	// account identification). Included on the initial INVITE so all providers see it.
-	inviteHeaders := []sip.Header{fromHDR}
-	if callerID := strings.TrimSpace(fromURI); callerID != "" {
-		pai := sip.NewHeader("P-Asserted-Identity", fmt.Sprintf("<%s:%s@%s>", scheme, callerID, fromDomain))
-		inviteHeaders = append(inviteHeaders, pai)
-	}
-
-	// Append user-defined custom headers from vault credential
-	if len(cfg.CustomHeaders) > 0 {
-		s.logger.Infow("MakeCall appending custom SIP headers", "custom_headers", cfg.CustomHeaders)
-	}
-	for name, value := range cfg.CustomHeaders {
-		inviteHeaders = append(inviteHeaders, sip.NewHeader(name, value))
-	}
-
-	// Log all INVITE headers before sending
-	headerNames := make([]string, 0, len(inviteHeaders))
-	for _, h := range inviteHeaders {
-		headerNames = append(headerNames, h.Name()+": "+h.Value())
-	}
-	s.logger.Infow("MakeCall INVITE headers", "headers", headerNames)
-
-	// Send INVITE via DialogClientCache — the cache stores the dialog once established
-	// so that incoming BYE/re-INVITE can be matched to it via dialogClientCache.ReadBye
-	// and dialogClientCache.MatchRequestDialog.
-	dialogSession, err := s.dialogClientCache.Invite(ctx, recipient, []byte(sdpBody), inviteHeaders...)
-	if err != nil {
-		rtpHandler.Stop()
-		s.rtpAllocator.Release(rtpPort)
-		return nil, fmt.Errorf("failed to send INVITE: %w", err)
-	}
-
-	// Extract call ID from the dialog's INVITE request
-	callID := dialogSession.InviteRequest.CallID().Value()
-
-	// Extract auth, assistant, and vault credential from metadata for direct session access
-	var sessionAuth interface{}
-	var sessionAssistant interface{}
-	var sessionVaultCred *protos.VaultCredential
-
-	if metadata != nil {
-		if val, ok := metadata["auth"]; ok {
-			sessionAuth = val
-		}
-		if val, ok := metadata["assistant"]; ok {
-			sessionAssistant = val
-		}
-		if vaultCredVal, ok := metadata["vault_credential"]; ok {
-			if vaultCred, ok := vaultCredVal.(*protos.VaultCredential); ok {
-				sessionVaultCred = vaultCred
-			}
-		}
-	}
-
-	// Create our internal session with auth and assistant context
 	session, err := NewSession(ctx, &SessionConfig{
 		Config:          cfg,
 		Direction:       CallDirectionOutbound,
-		CallID:          callID,
+		CallID:          invite.callID,
 		Codec:           &CodecPCMU,
 		Logger:          s.logger,
-		Auth:            sessionAuth,
-		Assistant:       sessionAssistant,
-		VaultCredential: sessionVaultCred,
+		Auth:            opts.Auth,
+		Assistant:       opts.Assistant,
+		ConversationID:  opts.ConversationID,
+		VaultCredential: opts.VaultCredential,
 	})
 	if err != nil {
-		dialogSession.Close()
-		rtpHandler.Stop()
-		s.rtpAllocator.Release(rtpPort)
+		invite.cleanup()
 		return nil, fmt.Errorf("failed to create outbound session: %w", err)
 	}
 
-	session.SetLocalRTP(externalIP, localPort)
-	session.SetRTPHandler(rtpHandler)
+	session.SetLocalRTP(invite.externalIP, invite.localPort)
+	session.SetRTPHandler(invite.rtpHandler)
+	session.SetDialogClientSession(invite.dialogSession)
 
-	// Store the DialogClientSession on our Session so handlers can access it
-	// for CSeq validation (re-INVITE) and server-side hangup (dialog.Bye).
-	session.SetDialogClientSession(dialogSession)
-
-	// Set metadata on the session BEFORE launching the goroutine.
-	// handleOutboundDialog runs asynchronously and calls onInvite → handleOutboundAnswered
-	// which reads this metadata. On fast LANs the 200 OK can arrive before the caller
-	// of MakeCall gets a chance to set metadata, causing a race condition where
-	// handleOutboundAnswered fails with "outbound session missing assistant_id metadata".
-	// Also retain auth/assistant/sip_config in metadata for backward compatibility.
-	for k, v := range metadata {
-		session.SetMetadata(k, v)
-	}
-
-	// Register session before waiting for answer
-	s.mu.Lock()
-	s.sessions[callID] = session
-	s.sessionCount.Add(1)
-	s.mu.Unlock()
+	s.registerSession(session, invite.callID)
 
 	// Handle the call lifecycle in background
-	go s.handleOutboundDialog(session, rtpHandler, dialogSession)
+	go s.handleOutboundDialog(session, invite.rtpHandler, invite.dialogSession)
 
 	return session, nil
 }
@@ -1697,11 +1529,10 @@ func (s *Server) handleOutboundDialog(session *Session, rtpHandler *RTPHandler, 
 						"www_authenticate", wwwAuth.Value(),
 						"auth_username", session.config.Username)
 				}
-				// Log the Authorization header from the INVITE request (if present from a retry)
 				if authHdr := dialogSession.InviteRequest.GetHeader("Authorization"); authHdr != nil {
 					s.logger.Debugw("SIP digest Authorization sent",
 						"call_id", callID,
-						"authorization", authHdr.Value())
+						"has_authorization", true)
 				}
 			}
 			if statusCode == 407 {
@@ -1714,7 +1545,7 @@ func (s *Server) handleOutboundDialog(session *Session, rtpHandler *RTPHandler, 
 				if authHdr := dialogSession.InviteRequest.GetHeader("Proxy-Authorization"); authHdr != nil {
 					s.logger.Debugw("SIP digest Proxy-Authorization sent",
 						"call_id", callID,
-						"proxy_authorization", authHdr.Value())
+						"has_proxy_authorization", true)
 				}
 			}
 
@@ -1727,22 +1558,13 @@ func (s *Server) handleOutboundDialog(session *Session, rtpHandler *RTPHandler, 
 		if errors.As(err, &dialogErr) {
 			// If 401/407 after auth attempt, it means credentials are wrong
 			if dialogErr.Res.StatusCode == 401 || dialogErr.Res.StatusCode == 407 {
-				// Capture the Authorization header that was sent for diagnosis
-				authSent := "none"
-				if authHdr := dialogSession.InviteRequest.GetHeader("Authorization"); authHdr != nil {
-					authSent = authHdr.Value()
-				} else if authHdr := dialogSession.InviteRequest.GetHeader("Proxy-Authorization"); authHdr != nil {
-					authSent = authHdr.Value()
-				}
-				s.logger.Error("Outbound call authentication failed — check SIP credentials in vault",
+				s.logger.Errorw("Outbound call authentication failed — check SIP credentials in vault",
 					"call_id", callID,
 					"status", dialogErr.Res.StatusCode,
 					"reason", dialogErr.Res.Reason,
 					"auth_username", session.config.Username,
-					"auth_realm", session.config.Realm,
 					"auth_password_set", len(session.config.Password) > 0,
 					"digest_uri", dialogSession.InviteRequest.Recipient.Addr(),
-					"authorization_sent", authSent,
 					"hint", "Verify sip_username and sip_password in vault match the SIP provider's auth credentials")
 			} else {
 				s.logger.Warnw("Outbound call rejected by remote",
@@ -1756,6 +1578,7 @@ func (s *Server) handleOutboundDialog(session *Session, rtpHandler *RTPHandler, 
 				"error", err)
 		}
 		session.SetState(CallStateFailed)
+		s.notifyError(session, err)
 		s.removeSession(callID)
 		rtpHandler.Stop()
 		session.End()
@@ -1842,7 +1665,7 @@ func (s *Server) handleOutboundDialog(session *Session, rtpHandler *RTPHandler, 
 
 	// Step 3: NOW send ACK — dialog is confirmed, RTP is already flowing.
 	if err := dialogSession.Ack(session.ctx); err != nil {
-		s.logger.Error("Failed to send ACK", "error", err, "call_id", callID)
+		s.logger.Errorw("Failed to send ACK", "error", err, "call_id", callID)
 		session.SetState(CallStateFailed)
 		s.removeSession(callID)
 		rtpHandler.Stop()
@@ -1866,7 +1689,7 @@ func (s *Server) handleOutboundDialog(session *Session, rtpHandler *RTPHandler, 
 		s.logger.Infow("Starting onInvite handler for outbound call",
 			"call_id", callID)
 		if err := onInvite(session, info.LocalURI, info.RemoteURI); err != nil {
-			s.logger.Error("Outbound INVITE handler failed", "error", err, "call_id", callID)
+			s.logger.Errorw("Outbound INVITE handler failed", "error", err, "call_id", callID)
 		} else {
 			s.logger.Infow("onInvite handler completed",
 				"call_id", callID,
@@ -1921,4 +1744,210 @@ func (s *Server) handleOutboundDialog(session *Session, rtpHandler *RTPHandler, 
 	// Cleanup: stop RTP and remove session from map
 	rtpHandler.Stop()
 	s.removeSession(callID)
+}
+
+// outboundInvite holds the result of prepareOutboundInvite — the allocated
+// resources and dialog needed to complete or clean up an outbound call.
+type outboundInvite struct {
+	rtpHandler    *RTPHandler
+	rtpPort       int
+	localPort     int
+	externalIP    string
+	callID        string
+	dialogSession *sipgo.DialogClientSession
+
+	server *Server // back-reference for cleanup
+}
+
+// cleanup releases all resources allocated during prepareOutboundInvite.
+// Safe to call on error paths before the session takes ownership.
+func (o *outboundInvite) cleanup() {
+	if o.rtpHandler != nil {
+		o.rtpHandler.Stop()
+	}
+	if o.server != nil && o.rtpPort > 0 {
+		o.server.rtpAllocator.Release(o.rtpPort)
+	}
+	if o.dialogSession != nil {
+		time.AfterFunc(2*time.Second, func() { o.dialogSession.Close() })
+	}
+}
+
+// prepareOutboundInvite allocates RTP, builds SDP + INVITE headers, and sends
+// the INVITE via the dialog client cache. Returns the allocated resources in an
+// outboundInvite struct. The caller must call invite.cleanup() on error, or
+// transfer ownership of the resources to a Session on success.
+//
+// Shared between MakeCall and MakeBridgeCall.
+func (s *Server) prepareOutboundInvite(ctx context.Context, cfg *Config, toURI, fromURI string) (*outboundInvite, error) {
+	rtpPort, err := s.rtpAllocator.Allocate()
+	if err != nil {
+		return nil, fmt.Errorf("no RTP ports available: %w", err)
+	}
+
+	rtpBindIP := s.listenConfig.GetBindAddress()
+	rtpHandler, err := NewRTPHandler(ctx, &RTPConfig{
+		LocalIP:     rtpBindIP,
+		LocalPort:   rtpPort,
+		PayloadType: CodecPCMU.PayloadType,
+		ClockRate:   CodecPCMU.ClockRate,
+		Logger:      s.logger,
+	})
+	if err != nil {
+		s.rtpAllocator.Release(rtpPort)
+		return nil, fmt.Errorf("failed to create RTP handler: %w", err)
+	}
+
+	_, localPort := rtpHandler.LocalAddr()
+	externalIP := s.listenConfig.GetExternalIP()
+	sdpBody := s.GenerateSDP(DefaultSDPConfig(externalIP, localPort))
+
+	scheme := "sip"
+	if cfg.Transport == TransportTLS {
+		scheme = "sips"
+	}
+
+	recipient := sip.Uri{
+		Scheme: scheme,
+		Host:   cfg.Server,
+		Port:   cfg.Port,
+		User:   toURI,
+	}
+	if cfg.Transport == TransportTLS || cfg.Transport == TransportTCP {
+		if recipient.UriParams == nil {
+			recipient.UriParams = sip.NewParams()
+		}
+		recipient.UriParams.Add("transport", string(cfg.Transport))
+	}
+
+	fromDomain := cfg.Domain
+	if fromDomain == "" {
+		fromDomain = cfg.Server
+	}
+	fromUser := strings.TrimSpace(fromURI)
+	if cfg.CallerID != "" {
+		fromUser = cfg.CallerID
+	}
+	if fromUser == "" {
+		fromUser = cfg.Username
+	}
+	if fromUser == "" {
+		rtpHandler.Stop()
+		s.rtpAllocator.Release(rtpPort)
+		return nil, fmt.Errorf("SIP From user is empty: fromPhone, caller_id, or sip_username must be set")
+	}
+
+	fromHDR := &sip.FromHeader{
+		DisplayName: fromURI,
+		Address: sip.Uri{
+			Scheme: scheme,
+			User:   fromUser,
+			Host:   fromDomain,
+		},
+		Params: sip.NewParams(),
+	}
+	fromHDR.Params.Add("tag", sip.GenerateTagN(16))
+
+	inviteHeaders := []sip.Header{fromHDR}
+	if callerID := strings.TrimSpace(fromURI); callerID != "" {
+		pai := sip.NewHeader("P-Asserted-Identity", fmt.Sprintf("<%s:%s@%s>", scheme, callerID, fromDomain))
+		inviteHeaders = append(inviteHeaders, pai)
+	}
+	for name, value := range cfg.CustomHeaders {
+		inviteHeaders = append(inviteHeaders, sip.NewHeader(name, value))
+	}
+
+	dialogSession, err := s.dialogClientCache.Invite(ctx, recipient, []byte(sdpBody), inviteHeaders...)
+	if err != nil {
+		rtpHandler.Stop()
+		s.rtpAllocator.Release(rtpPort)
+		return nil, fmt.Errorf("failed to send INVITE: %w", err)
+	}
+
+	callID := dialogSession.InviteRequest.CallID().Value()
+
+	return &outboundInvite{
+		rtpHandler:    rtpHandler,
+		rtpPort:       rtpPort,
+		localPort:     localPort,
+		externalIP:    externalIP,
+		callID:        callID,
+		dialogSession: dialogSession,
+		server:        s,
+	}, nil
+}
+
+// answeredCall holds the result of waitForAnswer — the RTP handler with remote
+// address set, codec negotiated, RTP started, and ACK sent.
+type answeredCall struct {
+	rtpHandler      *RTPHandler
+	negotiatedCodec *Codec
+}
+
+// waitForAnswer blocks until the outbound dialog receives a 200 OK, parses
+// the SDP answer, starts RTP, and sends ACK. Returns the answered call state.
+//
+// Shared between handleOutboundDialog and MakeBridgeCall.
+func (s *Server) waitForAnswer(ctx context.Context, invite *outboundInvite, cfg *Config) (*answeredCall, error) {
+	err := invite.dialogSession.WaitAnswer(ctx, sipgo.AnswerOptions{
+		Username: cfg.Username,
+		Password: cfg.Password,
+		OnResponse: func(res *sip.Response) error {
+			s.logger.Debugw("Outbound call response",
+				"call_id", invite.callID, "status", res.StatusCode)
+			return nil
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// 200 OK — parse SDP, start RTP before ACK (Asterisk needs media immediately)
+	var negotiatedCodec *Codec
+	if invite.dialogSession.InviteResponse != nil {
+		if body := invite.dialogSession.InviteResponse.Body(); len(body) > 0 {
+			sdpInfo, parseErr := s.ParseSDP(body)
+			if parseErr == nil && sdpInfo.ConnectionIP != "" && sdpInfo.AudioPort > 0 {
+				invite.rtpHandler.SetRemoteAddr(sdpInfo.ConnectionIP, sdpInfo.AudioPort)
+				if sdpInfo.PreferredCodec != nil {
+					invite.rtpHandler.SetCodec(sdpInfo.PreferredCodec)
+					negotiatedCodec = sdpInfo.PreferredCodec
+				}
+			} else if parseErr != nil {
+				s.logger.Warnw("Failed to parse SDP from 200 OK",
+					"call_id", invite.callID, "error", parseErr)
+			}
+		} else {
+			s.logger.Warnw("No SDP body in 200 OK response", "call_id", invite.callID)
+		}
+	} else {
+		s.logger.Warnw("No InviteResponse available after WaitAnswer", "call_id", invite.callID)
+	}
+
+	invite.rtpHandler.Start()
+
+	ackCtx, ackCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer ackCancel()
+	if err := invite.dialogSession.Ack(ackCtx); err != nil {
+		invite.rtpHandler.Stop()
+		return nil, fmt.Errorf("failed to send ACK: %w", err)
+	}
+
+	return &answeredCall{
+		rtpHandler:      invite.rtpHandler,
+		negotiatedCodec: negotiatedCodec,
+	}, nil
+}
+
+// registerSession registers a session for BYE routing and sets up the
+// onDisconnect callback. Used by both MakeCall and MakeBridgeCall.
+func (s *Server) registerSession(session *Session, callID string) {
+	session.SetOnDisconnect(func(sess *Session) {
+		s.sendBye(sess)
+		s.removeSession(callID)
+	})
+	s.mu.Lock()
+	s.sessions[callID] = session
+	s.sessionCount.Add(1)
+	s.mu.Unlock()
 }

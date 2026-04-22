@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rapidaai/api/assistant-api/config"
+	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/types"
@@ -35,26 +36,38 @@ func NewTwilioTelephony(config *config.AssistantConfig, logger commons.Logger) (
 	}, nil
 }
 
-func (tpc *twilioTelephony) client(vaultCredential *protos.VaultCredential) (*twilio.RestClient, error) {
-	clientParams, err := tpc.clientParam(vaultCredential)
+func twilioClient(vaultCredential *protos.VaultCredential) (*twilio.RestClient, error) {
+	clientParams, err := twilioClientParams(vaultCredential)
 	if err != nil {
 		return nil, err
 	}
 	return twilio.NewRestClientWithParams(*clientParams), nil
 }
 
-func (tpc *twilioTelephony) clientParam(vaultCredential *protos.VaultCredential) (*twilio.ClientParams, error) {
-	accountSid, ok := vaultCredential.GetValue().AsMap()["account_sid"]
+func twilioClientParams(vaultCredential *protos.VaultCredential) (*twilio.ClientParams, error) {
+	if vaultCredential.GetValue() == nil {
+		return nil, fmt.Errorf("vault credential value is nil")
+	}
+	vaultMap := vaultCredential.GetValue().AsMap()
+	accountSid, ok := vaultMap["account_sid"]
 	if !ok {
 		return nil, fmt.Errorf("illegal vault config accountSid is not found")
 	}
-	authToken, ok := vaultCredential.GetValue().AsMap()["account_token"]
+	authToken, ok := vaultMap["account_token"]
 	if !ok {
 		return nil, fmt.Errorf("illegal vault config account_token not found")
 	}
+	sid, ok := accountSid.(string)
+	if !ok {
+		return nil, fmt.Errorf("illegal vault config account_sid is not a string")
+	}
+	token, ok := authToken.(string)
+	if !ok {
+		return nil, fmt.Errorf("illegal vault config account_token is not a string")
+	}
 	return &twilio.ClientParams{
-		Username: accountSid.(string),
-		Password: authToken.(string),
+		Username: sid,
+		Password: token,
 	}, nil
 }
 
@@ -90,12 +103,12 @@ func (tpc *twilioTelephony) StatusCallback(c *gin.Context, auth types.SimplePrin
 	return &internal_type.StatusInfo{Event: event, Payload: eventDetails}, nil
 }
 
-func (tpc *twilioTelephony) OutboundCall(auth types.SimplePrinciple, toPhone string, fromPhone string, assistantId, assistantConversationId uint64, vaultCredential *protos.VaultCredential, opts utils.Option) (*internal_type.CallInfo, error) {
+func (tpc *twilioTelephony) OutboundCall(auth types.SimplePrinciple, toPhone string, fromPhone string, assistant *internal_assistant_entity.Assistant, assistantConversationId uint64, vaultCredential *protos.VaultCredential, opts utils.Option) (*internal_type.CallInfo, error) {
 	info := &internal_type.CallInfo{Provider: twilioProvider}
 
 	contextID, _ := opts.GetString("rapida.context_id")
 
-	client, err := tpc.client(vaultCredential)
+	client, err := twilioClient(vaultCredential)
 	if err != nil {
 		info.Status = "FAILED"
 		info.ErrorMessage = fmt.Sprintf("authentication error: %s", err.Error())
@@ -114,10 +127,10 @@ func (tpc *twilioTelephony) OutboundCall(auth types.SimplePrinciple, toPhone str
 	callParams.SetTwiml(
 		tpc.CreateTwinML(
 			tpc.appCfg.PublicAssistantHost,
-			fmt.Sprintf("%d__%d", assistantId, assistantConversationId),
+			fmt.Sprintf("%d__%d", assistant.Id, assistantConversationId),
 			internal_type.GetContextAnswerPath(twilioProvider, contextID),
 			fmt.Sprintf("https://%s/%s", tpc.appCfg.PublicAssistantHost, internal_type.GetContextEventPath(twilioProvider, contextID)),
-			assistantId,
+			assistant.Id,
 			toPhone),
 	)
 	resp, err := client.Api.CreateCall(callParams)
@@ -187,6 +200,9 @@ func (tpc *twilioTelephony) ReceiveCall(c *gin.Context) (*internal_type.CallInfo
 		Provider:     twilioProvider,
 		Status:       "SUCCESS",
 		StatusInfo:   internal_type.StatusInfo{Event: "webhook", Payload: queryParams},
+	}
+	if v, ok := queryParams["To"]; ok && v != "" {
+		info.FromNumber = v // DID that received the call (our number)
 	}
 	if v, ok := queryParams["CallSid"]; ok && v != "" {
 		info.ChannelUUID = v
