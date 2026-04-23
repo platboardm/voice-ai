@@ -27,7 +27,8 @@ var (
 	markdownImage   = regexp.MustCompile(`!\[[^\]]*\]\([^)]+\)`)
 	markdownQuote   = regexp.MustCompile(`(?m)^>\s?`)
 	markdownHr      = regexp.MustCompile(`(?m)^(-{3,}|\*{3,}|_{3,})$`)
-	markdownStars   = regexp.MustCompile(`[*_]+`)
+	markdownStars   = regexp.MustCompile(`[*]+`)
+	wordUnderscore  = regexp.MustCompile(`(\w)_(\w)`)
 	whitespaceRun   = regexp.MustCompile(`\s+`)
 )
 
@@ -153,11 +154,6 @@ func (n *outputNormalizer) handleCleanText(ctx context.Context, v CleanTextPipel
 	for _, norm := range n.normalizers {
 		text = norm.Normalize(text)
 	}
-	text = whitespaceRun.ReplaceAllString(text, " ")
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return
-	}
 	n.Run(ctx, OutputPipeline{ContextID: v.ContextID, Text: text, IsFinal: v.IsFinal})
 }
 
@@ -192,6 +188,7 @@ func (n *outputNormalizer) removeMarkdown(text string) string {
 	text = markdownQuote.ReplaceAllString(text, "")
 	text = markdownHr.ReplaceAllString(text, "")
 	text = markdownStars.ReplaceAllString(text, "")
+	text = wordUnderscore.ReplaceAllString(text, "$1 $2")
 	return text
 }
 

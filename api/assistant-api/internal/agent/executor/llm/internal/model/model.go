@@ -151,7 +151,7 @@ func (e *modelAssistantExecutor) Execute(ctx context.Context, communication inte
 	case internal_type.LLMToolResultPacket:
 		e.Run(ctx, communication, ToolResultPipeline{Packet: p})
 
-	case internal_type.InterruptionDetectedPacket:
+	case internal_type.LLMInterruptPacket:
 		e.Run(ctx, communication, InterruptionPipeline{Packet: p})
 
 	default:

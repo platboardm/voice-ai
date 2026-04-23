@@ -30,7 +30,7 @@ type ToolResultPipeline struct {
 }
 
 type InterruptionPipeline struct {
-	Packet internal_type.InterruptionDetectedPacket
+	Packet internal_type.LLMInterruptPacket
 }
 
 type ResponsePipeline struct {
@@ -42,8 +42,8 @@ type ToolFollowUpPipeline struct {
 }
 
 func (UserTurnPipeline) agentPipeline()      {}
-func (InjectMessagePipeline) agentPipeline()  {}
-func (ToolResultPipeline) agentPipeline()     {}
-func (InterruptionPipeline) agentPipeline()   {}
-func (ResponsePipeline) agentPipeline()       {}
-func (ToolFollowUpPipeline) agentPipeline()   {}
+func (InjectMessagePipeline) agentPipeline() {}
+func (ToolResultPipeline) agentPipeline()    {}
+func (InterruptionPipeline) agentPipeline()  {}
+func (ResponsePipeline) agentPipeline()      {}
+func (ToolFollowUpPipeline) agentPipeline()  {}

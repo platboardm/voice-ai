@@ -125,7 +125,7 @@ func (e *agentkitExecutor) Execute(ctx context.Context, comm internal_type.Commu
 		return e.Run(ctx, comm, UserTextPipeline{Packet: p})
 	case internal_type.InjectMessagePacket:
 		return e.Run(ctx, comm, InjectMessagePipeline{Packet: p})
-	case internal_type.InterruptionDetectedPacket:
+	case internal_type.LLMInterruptPacket:
 		return e.Run(ctx, comm, InterruptionPipeline{Packet: p})
 	default:
 		return fmt.Errorf("unsupported packet type: %T", pctk)

@@ -279,8 +279,8 @@ func TestOnPacket_RoutesToCorrectChannel(t *testing.T) {
 	cases := []routeCase{
 		// Critical
 		{"InterruptionDetectedPacket", internal_type.InterruptionDetectedPacket{ContextID: "c"}, "critical"},
-		{"InterruptTTSPacket", internal_type.InterruptTTSPacket{ContextID: "c"}, "critical"},
-		{"InterruptLLMPacket", internal_type.InterruptLLMPacket{ContextID: "c"}, "critical"},
+		{"TTSInterruptPacket", internal_type.TTSInterruptPacket{ContextID: "c"}, "critical"},
+		{"LLMInterruptPacket", internal_type.LLMInterruptPacket{ContextID: "c"}, "critical"},
 		{"TurnChangePacket", internal_type.TurnChangePacket{ContextID: "c", PreviousContextID: "p"}, "critical"},
 		{"LLMToolCallPacket_Action", internal_type.LLMToolCallPacket{ContextID: "c", Action: protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION}, "critical"},
 		{"InjectMessagePacket", internal_type.InjectMessagePacket{ContextID: "c"}, "output"},
@@ -295,7 +295,6 @@ func TestOnPacket_RoutesToCorrectChannel(t *testing.T) {
 		{"SpeechToTextPacket", internal_type.SpeechToTextPacket{ContextID: "c"}, "input"},
 		{"EndOfSpeechPacket", internal_type.EndOfSpeechPacket{ContextID: "c"}, "input"},
 		{"InterimEndOfSpeechPacket", internal_type.InterimEndOfSpeechPacket{ContextID: "c"}, "input"},
-		{"NormalizeInputPacket", internal_type.NormalizeInputPacket{ContextID: "c"}, "input"},
 		{"UserInputPacket", internal_type.UserInputPacket{ContextID: "c"}, "input"},
 
 		// Output
@@ -477,13 +476,13 @@ func TestHandleUserText_UnknownState_SkipsInterruption(t *testing.T) {
 	// Give dispatchers time to process.
 	time.Sleep(200 * time.Millisecond)
 
-	// No InterruptTTSPacket or InterruptLLMPacket should appear since
+	// No TTSInterruptPacket or LLMInterruptPacket should appear since
 	// Transition(Interrupted) is rejected from Unknown state.
 	select {
 	case env := <-r.criticalCh:
-		// Only InterruptTTSPacket/InterruptLLMPacket mean a problem.
+		// Only TTSInterruptPacket/LLMInterruptPacket mean a problem.
 		switch env.pkt.(type) {
-		case internal_type.InterruptTTSPacket, internal_type.InterruptLLMPacket:
+		case internal_type.TTSInterruptPacket, internal_type.LLMInterruptPacket:
 			t.Fatal("interruption packets should not be emitted from Unknown state")
 		}
 	default:
@@ -564,75 +563,75 @@ func TestHandleUserAudio_NoDenoiser_FansOut(t *testing.T) {
 // 7. EndOfSpeech -> NormalizeInputPacket
 // =============================================================================
 
-func TestHandleEndOfSpeech_EmitsNormalizeInputPacket(t *testing.T) {
-	t.Parallel()
-	r := newTestRequestor(t, context.Background())
+// func TestHandleEndOfSpeech_EmitsNormalizeInputPacket(t *testing.T) {
+// 	t.Parallel()
+// 	r := newTestRequestor(t, context.Background())
 
-	r.handleEndOfSpeech(context.Background(), internal_type.EndOfSpeechPacket{
-		ContextID: "ctx-1",
-		Speech:    "hello world",
-		Speechs:   []internal_type.SpeechToTextPacket{{Script: "hello world", Language: "en"}},
-	})
+// 	r.handleEndOfSpeech(context.Background(), internal_type.EndOfSpeechPacket{
+// 		ContextID: "ctx-1",
+// 		Speech:    "hello world",
+// 		Speechs:   []internal_type.SpeechToTextPacket{{Script: "hello world", Language: "en"}},
+// 	})
 
-	pkt, ok := drainPacket[internal_type.NormalizeInputPacket](r.inputCh, time.Second)
-	require.True(t, ok, "expected NormalizeInputPacket in inputCh")
-	assert.Equal(t, "ctx-1", pkt.ContextID)
-	assert.Equal(t, "hello world", pkt.Speech)
-	assert.Len(t, pkt.Speechs, 1)
-}
+// 	pkt, ok := drainPacket[internal_type.NormalizeInputPacket](r.inputCh, time.Second)
+// 	require.True(t, ok, "expected NormalizeInputPacket in inputCh")
+// 	assert.Equal(t, "ctx-1", pkt.ContextID)
+// 	assert.Equal(t, "hello world", pkt.Speech)
+// 	assert.Len(t, pkt.Speechs, 1)
+// }
 
-// =============================================================================
-// 8. NormalizeInputPacket with normalizer
-// =============================================================================
+// // =============================================================================
+// // 8. NormalizeInputPacket with normalizer
+// // =============================================================================
 
-func TestHandleNormalizeInput_WithNormalizer_EmitsNormalizedText(t *testing.T) {
-	t.Parallel()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+// func TestHandleNormalizeInput_WithNormalizer_EmitsNormalizedText(t *testing.T) {
+// 	t.Parallel()
+// 	ctx, cancel := context.WithCancel(context.Background())
+// 	defer cancel()
 
-	r := newTestRequestor(t, ctx)
-	norm := &normalizerStub{}
-	r.inputNormalizer = norm
+// 	r := newTestRequestor(t, ctx)
+// 	norm := &normalizerStub{}
+// 	r.inputNormalizer = norm
 
-	norm.onPacket = func(ctx context.Context, pkts ...internal_type.Packet) error {
-		return r.OnPacket(ctx, pkts...)
-	}
+// 	norm.onPacket = func(ctx context.Context, pkts ...internal_type.Packet) error {
+// 		return r.OnPacket(ctx, pkts...)
+// 	}
 
-	go r.runInputDispatcher(ctx)
-	time.Sleep(50 * time.Millisecond)
+// 	go r.runInputDispatcher(ctx)
+// 	time.Sleep(50 * time.Millisecond)
 
-	err := r.OnPacket(ctx, internal_type.NormalizeInputPacket{
-		ContextID: "ctx-1",
-		Speech:    "bonjour",
-		Speechs:   []internal_type.SpeechToTextPacket{{Script: "bonjour", Language: "fr"}},
-	})
-	require.NoError(t, err)
+// 	err := r.OnPacket(ctx, internal_type.NormalizeInputPacket{
+// 		ContextID: "ctx-1",
+// 		Speech:    "bonjour",
+// 		Speechs:   []internal_type.SpeechToTextPacket{{Script: "bonjour", Language: "fr"}},
+// 	})
+// 	require.NoError(t, err)
 
-	pkt, ok := drainPacket[internal_type.UserInputPacket](r.inputCh, 2*time.Second)
-	require.True(t, ok, "expected UserInputPacket in inputCh")
-	assert.Equal(t, "ctx-1", pkt.ContextID)
-	assert.Equal(t, "bonjour", pkt.Text)
-}
+// 	pkt, ok := drainPacket[internal_type.UserInputPacket](r.inputCh, 2*time.Second)
+// 	require.True(t, ok, "expected UserInputPacket in inputCh")
+// 	assert.Equal(t, "ctx-1", pkt.ContextID)
+// 	assert.Equal(t, "bonjour", pkt.Text)
+// }
 
 // =============================================================================
 // 9. NormalizeInputPacket without normalizer (fallback)
-// =============================================================================
+// // =============================================================================
 
-func TestHandleNormalizeInput_NoNormalizer_FallsBackToNormalizedText(t *testing.T) {
-	t.Parallel()
-	r := newTestRequestor(t, context.Background())
-	// No normalizer set -- callInputNormalizer returns error, triggering fallback.
+// func TestHandleNormalizeInput_NoNormalizer_FallsBackToNormalizedText(t *testing.T) {
+// 	t.Parallel()
+// 	r := newTestRequestor(t, context.Background())
+// 	// No normalizer set -- callInputNormalizer returns error, triggering fallback.
 
-	r.handleNormalizeInput(context.Background(), internal_type.NormalizeInputPacket{
-		ContextID: "ctx-1",
-		Speech:    "fallback text",
-	})
+// 	r.handleNormalizeInput(context.Background(), internal_type.NormalizeInputPacket{
+// 		ContextID: "ctx-1",
+// 		Speech:    "fallback text",
+// 	})
 
-	pkt, ok := drainPacket[internal_type.UserInputPacket](r.inputCh, time.Second)
-	require.True(t, ok, "expected fallback UserInputPacket in inputCh")
-	assert.Equal(t, "ctx-1", pkt.ContextID)
-	assert.Equal(t, "fallback text", pkt.Text)
-}
+// 	pkt, ok := drainPacket[internal_type.UserInputPacket](r.inputCh, time.Second)
+// 	require.True(t, ok, "expected fallback UserInputPacket in inputCh")
+// 	assert.Equal(t, "ctx-1", pkt.ContextID)
+// 	assert.Equal(t, "fallback text", pkt.Text)
+// }
 
 // =============================================================================
 // 10. LLMResponseDelta -> TTSTextPacket
@@ -1645,7 +1644,7 @@ func (t *realisticTTSStub) getCounters() (interrupts, speaks, emits, dropped int
 //     provider back to "ready" state so it can speak again.
 //
 // This reproduces the production bug where idle message audio is missing
-// because no InterruptTTSPacket is sent to reinitialize the TTS provider.
+// because no TTSInterruptPacket is sent to reinitialize the TTS provider.
 type statefulTTSStub struct {
 	mu       sync.Mutex
 	packets  []internal_type.Packet
@@ -1730,7 +1729,7 @@ func (t *statefulTTSStub) getCounters() (inits, speaks, emits, staleDrops int) {
 // Bug: TTS in "completed" state drops idle message audio
 //
 // After the welcome message completes, the TTS provider enters "completed"
-// state (connection stale). The old code sent InterruptTTSPacket which
+// state (connection stale). The old code sent TTSInterruptPacket which
 // reinitialized TTS. The new code skips the interrupt, so TTS stays in
 // "completed" state and silently drops idle message text.
 //
@@ -2592,7 +2591,7 @@ func TestScenario_WelcomeThenIdleTimeoutsUntilDisconnect(t *testing.T) {
 }
 
 // =============================================================================
-// Bug: TTS race — InterruptTTSPacket arrives AFTER InjectMessage's output
+// Bug: TTS race — TTSInterruptPacket arrives AFTER InjectMessage's output
 // reaches TTS, cancelling the idle message audio.
 //
 // Production log pattern:
@@ -2602,7 +2601,7 @@ func TestScenario_WelcomeThenIdleTimeoutsUntilDisconnect(t *testing.T) {
 //
 // Root cause: onIdleTimeout enqueues [InterruptionDetected, InjectMessage] to
 // criticalCh. Critical dispatcher processes InterruptionDetected → handleInterruption
-// → enqueues InterruptTTSPacket BACK to criticalCh. But InjectMessagePacket is
+// → enqueues TTSInterruptPacket BACK to criticalCh. But InjectMessagePacket is
 // already AHEAD in criticalCh. So:
 //   criticalCh: [InjectMessage, InterruptTTS, InterruptLLM]
 //
@@ -2818,7 +2817,7 @@ func TestBug_TTSRace_MultipleIdleTimeouts_AllShouldProduceAudio(t *testing.T) {
 // Potential deadlock: if the timer goroutine holds RLock and blocks on criticalCh
 // (full), while the critical dispatcher holds Lock and blocks on lowCh (full).
 //
-// Also: handleInterruption enqueues InterruptTTSPacket/InterruptLLMPacket BACK
+// Also: handleInterruption enqueues TTSInterruptPacket/LLMInterruptPacket BACK
 // to criticalCh — self-deadlock if the channel is near capacity.
 // =============================================================================
 
@@ -2963,8 +2962,8 @@ func TestDeadlock_IdleTimeoutWhileUserSpeaks(t *testing.T) {
 // Deadlock: handleInjectMessagePacket blocks critical dispatcher
 //
 // handleInjectMessagePacket calls assistantExecutor.Execute() synchronously
-// on the critical dispatcher. If the executor is slow, InterruptTTSPacket and
-// InterruptLLMPacket (enqueued by handleInterruption) are stuck behind it.
+// on the critical dispatcher. If the executor is slow, TTSInterruptPacket and
+// LLMInterruptPacket (enqueued by handleInterruption) are stuck behind it.
 //
 // This test verifies that a slow executor does not cause the system to deadlock.
 // =============================================================================
@@ -3025,7 +3024,7 @@ func TestDeadlock_SlowExecutor_DoesNotBlockSystem(t *testing.T) {
 
 	// Now fire idle timeout — the critical dispatcher will be blocked for 100ms
 	// while the executor processes the InjectMessagePacket. During this time,
-	// InterruptTTSPacket and InterruptLLMPacket are queued behind it.
+	// TTSInterruptPacket and LLMInterruptPacket are queued behind it.
 	done := make(chan struct{})
 	go func() {
 		_ = r.onIdleTimeout(ctx)
@@ -3051,7 +3050,7 @@ func TestDeadlock_SlowExecutor_DoesNotBlockSystem(t *testing.T) {
 // =============================================================================
 // Deadlock: channel backpressure — criticalCh self-enqueue
 //
-// handleInterruption(Word) enqueues InterruptTTSPacket and InterruptLLMPacket
+// handleInterruption(Word) enqueues TTSInterruptPacket and LLMInterruptPacket
 // back to criticalCh while already running on the critical dispatcher.
 // If criticalCh is nearly full (e.g., from many concurrent idle timeouts),
 // this self-enqueue can block the critical dispatcher forever.

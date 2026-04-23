@@ -247,7 +247,7 @@ func (rt *sarvamTextToSpeech) Transform(ctx context.Context, in internal_type.Pa
 	rt.mu.Unlock()
 
 	switch input := in.(type) {
-	case internal_type.InterruptionDetectedPacket:
+	case internal_type.TTSInterruptPacket:
 		// Close the current connection immediately — the readLoop goroutine will
 		// exit, discarding any in-flight audio. Reconnect now so the fresh
 		// connection is ready before the next text delta arrives.

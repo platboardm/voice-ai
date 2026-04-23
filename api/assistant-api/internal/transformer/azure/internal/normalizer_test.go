@@ -4,12 +4,12 @@
 // Licensed under GPL-2.0 with Rapida Additional Terms.
 // See LICENSE.md or contact sales@rapida.ai for commercial usage.
 
-package internal_transformer_azure
+package azure_internal
 
 import (
 	"testing"
 
-	"github.com/rapidaai/pkg/commons"
+	testutil "github.com/rapidaai/api/assistant-api/internal/transformer/internal/testutil"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +21,7 @@ import (
 
 func newTestAzureNormalizer(t *testing.T, opts utils.Option) *azureNormalizer {
 	t.Helper()
-	logger := newTestLogger()
+	logger := testutil.NewTestLogger()
 	normalizer := NewAzureNormalizer(logger, opts)
 	an, ok := normalizer.(*azureNormalizer)
 	require.True(t, ok, "expected *azureNormalizer type")
@@ -246,7 +246,7 @@ func TestSayAs(t *testing.T) {
 // =============================================================================
 
 func BenchmarkNormalize_SimpleText(b *testing.B) {
-	logger, _ := commons.NewApplicationLogger()
+	logger := testutil.NewTestLogger()
 	normalizer := NewAzureNormalizer(logger, utils.Option{})
 	text := "Hello, this is a simple text for TTS processing."
 
@@ -257,7 +257,7 @@ func BenchmarkNormalize_SimpleText(b *testing.B) {
 }
 
 func BenchmarkNormalize_WithConjunctions(b *testing.B) {
-	logger, _ := commons.NewApplicationLogger()
+	logger := testutil.NewTestLogger()
 	opts := utils.Option{
 		"speaker.conjunction.boundaries": "and<|||>but<|||>or",
 		"speaker.conjunction.break":      uint64(250),
@@ -272,7 +272,7 @@ func BenchmarkNormalize_WithConjunctions(b *testing.B) {
 }
 
 func BenchmarkNormalize_XMLEscaping(b *testing.B) {
-	logger, _ := commons.NewApplicationLogger()
+	logger := testutil.NewTestLogger()
 	normalizer := NewAzureNormalizer(logger, utils.Option{})
 	text := `Tom & Jerry said "hello" it's a < b > c`
 

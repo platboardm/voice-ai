@@ -159,17 +159,6 @@ type UserInputPacket struct {
 
 func (f UserInputPacket) ContextId() string { return f.ContextID }
 
-// NormalizeInputPacket triggers the input normalizer with the finalized speech.
-// Isolates the normalization step so it can be swapped or skipped without
-// modifying the EndOfSpeech handler.
-type NormalizeInputPacket struct {
-	ContextID string
-	Speech    string
-	Speechs   []SpeechToTextPacket
-}
-
-func (f NormalizeInputPacket) ContextId() string { return f.ContextID }
-
 // =============================================================================
 // Control — interrupts, directives, injected messages
 // =============================================================================
@@ -192,21 +181,55 @@ type InterruptionDetectedPacket struct {
 
 func (f InterruptionDetectedPacket) ContextId() string { return f.ContextID }
 
-// InterruptTTSPacket signals the TTS transformer to stop current playback.
-type InterruptTTSPacket struct {
+// TTSInterruptPacket signals the TTS transformer to stop current playback.
+type TTSInterruptPacket struct {
 	ContextID string
 	StartAt   float64
 	EndAt     float64
 }
 
-func (f InterruptTTSPacket) ContextId() string { return f.ContextID }
+func (f TTSInterruptPacket) ContextId() string { return f.ContextID }
+
+type STTErrorType int
+
+const (
+	STTRateLimit = 1
+	STTNetworkTimeout
+
+	// Non-Recoverable STT errors (e.g., bad API keys, invalid audio formats)
+	STTAuthentication
+	STTInvalidInput
+	STTSystemPanic
+)
+
+// When IsRecoverable is true, the conversation should be gracefully terminated.
+type STTErrorPacket struct {
+	ContextID string
+	Error     error
+	Type      STTErrorType
+}
+
+func (f STTErrorPacket) ContextId() string { return f.ContextID }
+func (f STTErrorPacket) IsRecoverable() bool {
+	return f.Type == STTRateLimit || f.Type == STTNetworkTimeout
+}
+func (f STTErrorPacket) Err() error         { return f.Error }
+func (f STTErrorPacket) ErrMessage() string { return fmt.Sprintf("stt: %s", f.Error.Error()) }
+
+type STTInterruptPacket struct {
+	ContextID string
+	StartAt   float64
+	EndAt     float64
+}
+
+func (f STTInterruptPacket) ContextId() string { return f.ContextID }
 
 // InterruptLLMPacket signals the LLM executor to cancel current generation.
-type InterruptLLMPacket struct {
+type LLMInterruptPacket struct {
 	ContextID string
 }
 
-func (f InterruptLLMPacket) ContextId() string { return f.ContextID }
+func (f LLMInterruptPacket) ContextId() string { return f.ContextID }
 
 // TurnChangePacket notifies components that active context changed to a new turn.
 type TurnChangePacket struct {
@@ -371,6 +394,34 @@ func (f *LLMToolResultPacket) UnmarshalJSON(data []byte) error {
 // Output Pipeline — aggregate -> speak -> TTS audio -> TTS end
 // =============================================================================
 
+type TTSErrorType int
+
+const (
+	TTSUnknownError TTSErrorType = iota
+
+	// Recoverable
+	TTSRateLimit
+	TTSNetworkTimeout
+
+	// Non-Recoverable
+	TTSAuthentication
+	TTSInvalidInput
+	TTSSystemPanic
+)
+
+type TTSErrorPacket struct {
+	ContextID string
+	Error     error
+	Type      TTSErrorType
+}
+
+func (f TTSErrorPacket) ContextId() string { return f.ContextID }
+func (f TTSErrorPacket) IsRecoverable() bool {
+	return f.Type == TTSRateLimit || f.Type == TTSNetworkTimeout
+}
+func (f TTSErrorPacket) Err() error         { return f.Error }
+func (f TTSErrorPacket) ErrMessage() string { return fmt.Sprintf("tts: %s", f.Error.Error()) }
+
 // TTSTextPacket carries a sentence-ready text chunk for TTS synthesis.
 type TTSTextPacket struct {
 	ContextID string
@@ -386,24 +437,6 @@ type TTSDonePacket struct {
 }
 
 func (f TTSDonePacket) ContextId() string { return f.ContextID }
-
-// --- Legacy types kept during migration. Do not use in new code. ---
-
-type AggregateTextPacket struct {
-	ContextID string
-	Text      string
-	IsFinal   bool
-}
-
-func (f AggregateTextPacket) ContextId() string { return f.ContextID }
-
-type SpeakTextPacket struct {
-	ContextID string
-	Text      string
-	IsFinal   bool
-}
-
-func (f SpeakTextPacket) ContextId() string { return f.ContextID }
 
 // TextToSpeechAudioPacket carries a TTS audio chunk produced by the TTS provider.
 type TextToSpeechAudioPacket struct {

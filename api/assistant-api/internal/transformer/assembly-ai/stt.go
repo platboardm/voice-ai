@@ -118,15 +118,6 @@ func (aai *assemblyaiSTT) readLoop(conn *websocket.Conn) {
 				aai.connection = nil // unintentional drop
 			}
 			aai.mu.Unlock()
-			if !intentional {
-				aai.logger.Errorf("assembly-ai-stt: connection lost: %v", err)
-				aai.onPacket(internal_type.ConversationEventPacket{
-					ContextID: aai.contextId,
-					Name:      "stt",
-					Data:      map[string]string{"type": "error", "error": err.Error()},
-					Time:      time.Now(),
-				})
-			}
 			return
 		}
 
@@ -230,6 +221,14 @@ func (aai *assemblyaiSTT) readLoop(conn *websocket.Conn) {
 
 		case "Begin":
 			aai.logger.Debugf("assembly-ai-stt: received Begin message")
+		case "Error":
+			aai.onPacket(
+				internal_type.STTErrorPacket{
+					ContextID: aai.contextId,
+					Error:     fmt.Errorf("assembly-ai-stt: unhandled error message"),
+					Type:      internal_type.STTNetworkTimeout,
+				},
+			)
 
 		default:
 			aai.logger.Debugf("assembly-ai-stt: unhandled message type: %s", transcript.Type)
@@ -244,9 +243,9 @@ func (aai *assemblyaiSTT) Transform(ctx context.Context, in internal_type.Packet
 		aai.contextId = pkt.ContextID
 		aai.mu.Unlock()
 		return nil
-	case internal_type.InterruptionDetectedPacket:
+	case internal_type.STTInterruptPacket:
 		aai.mu.Lock()
-		if pkt.Source == internal_type.InterruptionSourceVad && aai.startedAt.IsZero() {
+		if aai.startedAt.IsZero() {
 			aai.startedAt = time.Now()
 		}
 		aai.mu.Unlock()
@@ -255,11 +254,16 @@ func (aai *assemblyaiSTT) Transform(ctx context.Context, in internal_type.Packet
 		aai.mu.Lock()
 		defer aai.mu.Unlock()
 		if aai.connection == nil {
-			return fmt.Errorf("assembly-ai-stt: websocket connection is not initialized")
+			return nil
 		}
 		if err := aai.connection.WriteMessage(websocket.BinaryMessage, pkt.Content()); err != nil {
 			aai.logger.Errorf("assembly-ai-stt: error sending audio: %v", err)
-			return fmt.Errorf("error sending audio: %w", err)
+			aai.onPacket(internal_type.STTErrorPacket{
+				ContextID: aai.contextId,
+				Error:     fmt.Errorf("assembly-ai-stt: send failed: %w", err),
+				Type:      internal_type.STTNetworkTimeout,
+			})
+			return nil
 		}
 		return nil
 	default:

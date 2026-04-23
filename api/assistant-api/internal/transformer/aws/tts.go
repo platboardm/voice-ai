@@ -252,7 +252,7 @@ func (t *awsTTS) Transform(ctx context.Context, in internal_type.Packet) error {
 	t.mu.Unlock()
 
 	switch input := in.(type) {
-	case internal_type.InterruptionDetectedPacket:
+	case internal_type.TTSInterruptPacket:
 		if currentCtx != "" {
 			t.mu.Lock()
 			t.ttsStartedAt = time.Time{}

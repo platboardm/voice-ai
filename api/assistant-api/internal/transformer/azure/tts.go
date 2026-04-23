@@ -181,13 +181,17 @@ func (azure *azureTextToSpeech) Transform(ctx context.Context, in internal_type.
 		azure.ttsMetricSent = false
 	}
 	azure.mu.Unlock()
-
 	if cl == nil {
-		return fmt.Errorf("azure-tts: client not initialized")
+		azure.onPacket(internal_type.TTSErrorPacket{
+			ContextID: in.ContextId(),
+			Error:     fmt.Errorf("azure-tts: client not initialized"),
+			Type:      internal_type.TTSNetworkTimeout,
+		})
+		return nil
 	}
 
 	switch input := in.(type) {
-	case internal_type.InterruptionDetectedPacket:
+	case internal_type.TTSInterruptPacket:
 		if currentCtx != "" {
 			<-cl.StopSpeakingAsync()
 			azure.mu.Lock()
@@ -209,7 +213,12 @@ func (azure *azureTextToSpeech) Transform(ctx context.Context, in internal_type.
 		azure.mu.Unlock()
 		res := <-cl.StartSpeakingTextAsync(input.Text)
 		if res.Error != nil {
-			return res.Error
+			azure.onPacket(internal_type.TTSErrorPacket{
+				ContextID: input.ContextID,
+				Error:     fmt.Errorf("azure-tts: synthesis failed: %w", res.Error),
+				Type:      internal_type.TTSNetworkTimeout,
+			})
+			return nil
 		}
 		azure.onPacket(internal_type.ConversationEventPacket{
 			Name: "tts",
@@ -273,7 +282,14 @@ func (azCallback *azureTextToSpeech) OnCancel(event speech.SpeechSynthesisEventA
 	defer event.Close()
 	if event.Result.Reason == common.Canceled {
 		cancellation, _ := speech.NewCancellationDetailsFromSpeechSynthesisResult(&event.Result)
-		azCallback.logger.Warnf("azure-tts: synthesis canceled: reason=%v, errorCode=%v, errorDetails=%v",
-			cancellation.Reason, cancellation.ErrorCode, cancellation.ErrorDetails)
+		azCallback.logger.Warnf("azure-tts: synthesis canceled: reason=%v, errorCode=%v, errorDetails=%v", cancellation.Reason, cancellation.ErrorCode, cancellation.ErrorDetails)
+		azCallback.mu.Lock()
+		ctxId := azCallback.contextId
+		azCallback.mu.Unlock()
+		azCallback.onPacket(internal_type.TTSErrorPacket{
+			ContextID: ctxId,
+			Error:     fmt.Errorf("azure-tts: synthesis canceled: %v (code=%v)", cancellation.ErrorDetails, cancellation.ErrorCode),
+			Type:      internal_type.TTSNetworkTimeout,
+		})
 	}
 }

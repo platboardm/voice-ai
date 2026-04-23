@@ -28,7 +28,7 @@ type InjectMessagePipeline struct {
 }
 
 type InterruptionPipeline struct {
-	Packet internal_type.InterruptionDetectedPacket
+	Packet internal_type.LLMInterruptPacket
 }
 
 type ResponsePipeline struct {
