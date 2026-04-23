@@ -419,7 +419,7 @@ func TestRequestPipeline_ExecutesAllStages(t *testing.T) {
 	e.stream = stream
 	comm, collector := newTestComm()
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-pipeline",
 		Text:      "test",
 		Language:  mustLanguage(t, "en"),
@@ -488,11 +488,11 @@ func TestPipeline_PrepareHistoryPipeline_ChainsToSendAndAppend(t *testing.T) {
 	e.history = []*protos.Message{
 		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "existing"}}},
 	}
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-prepare"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-prepare"}
 	e.mu.Unlock()
 
 	pipeline := PrepareHistoryPipeline{
-		Packet: internal_type.NormalizedUserTextPacket{
+		Packet: internal_type.UserInputPacket{
 			ContextID: "ctx-prepare",
 			Text:      "new input",
 			Language:  mustLanguage(t, "en"),
@@ -524,7 +524,7 @@ func TestPipeline_ArgumentationPipeline_PreparesPromptArgs(t *testing.T) {
 		},
 	}
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-arg",
 		Text:      "hello",
 		Language:  en,
@@ -570,7 +570,7 @@ func TestPipeline_ArgumentationPipeline_PriorityOverride_AssistantConversationMe
 		},
 	}
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-arg-override",
 		Text:      "hello",
 		Language:  en,
@@ -595,7 +595,7 @@ func TestExecute_MessageLanguage_DefaultEnglishFallback(t *testing.T) {
 		},
 	}
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-default-language",
 		Text:      "hello",
 	})
@@ -622,7 +622,7 @@ func TestExecute_MessageLanguage_UsesUserTextReceivedPacketLanguage(t *testing.T
 		},
 	}
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-explicit-language",
 		Text:      "namaste",
 		Language:  hi,
@@ -651,7 +651,7 @@ func TestExecute_MessageLanguage_DottedPromptVariable_DoesNotBreakTemplateParsin
 		},
 	}
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-dotted-variable",
 		Text:      "bonjour",
 		Language:  fr,
@@ -710,7 +710,7 @@ func TestHandleResponse_NilOutput(t *testing.T) {
 func TestHandleResponse_StaleResponse_Dropped(t *testing.T) {
 	e := newTestExecutor()
 	comm, collector := newTestComm()
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-active"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-active"}
 	e.mu.Lock()
 	e.history = append(e.history, &protos.Message{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "q"}}})
 	e.mu.Unlock()
@@ -873,7 +873,7 @@ func TestExecuteUserTurn_InvalidHistoryIsNotRejectedByPipeline(t *testing.T) {
 	}
 	e.mu.Unlock()
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-invalid-history",
 		Text:      "new",
 		Language:  mustLanguage(t, "en"),
@@ -931,7 +931,7 @@ func TestHandleResponse_FinalWithoutToolCalls(t *testing.T) {
 func TestHandleResponse_FinalWithToolCalls(t *testing.T) {
 	e := newTestExecutor()
 	e.stream = nil
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "req-4"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "req-4"}
 
 	// Wire mock tool executor that emits LLMToolCallPacket (matching real behavior).
 	e.toolExecutor = &mockToolExecutor{
@@ -1011,7 +1011,7 @@ func TestHandleResponse_ToolFollowUpEmitsToolCallPacket(t *testing.T) {
 		"promptVariables": []map[string]string{},
 	}
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "req-tool",
 		Text:      "bonjour",
 		Language:  fr,
@@ -1190,7 +1190,7 @@ func TestExecute_UserTextReceivedPacket_SendsAndRecordsHistory(t *testing.T) {
 	e.stream = stream
 	comm, collector := newTestComm()
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-1",
 		Text:      "say hello",
 	})
@@ -1218,7 +1218,7 @@ func TestExecute_UserTextReceivedPacket_SendsAndRecordsHistory(t *testing.T) {
 
 func TestExecute_InterruptionDetectedPacket(t *testing.T) {
 	e := newTestExecutor()
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{
+	e.currentPacket = &internal_type.UserInputPacket{
 		ContextID: "ctx-old",
 		Text:      "old text",
 		Language:  mustLanguage(t, "fr"),
@@ -1248,7 +1248,7 @@ func TestSend_NilStream(t *testing.T) {
 	e.stream = nil
 	comm, _ := newTestComm()
 
-	err := e.chat(context.Background(), comm, internal_type.NormalizedUserTextPacket{ContextID: "ctx-1"}, map[string]interface{}{}, &protos.Message{Role: "user"})
+	err := e.chat(context.Background(), comm, internal_type.UserInputPacket{ContextID: "ctx-1"}, map[string]interface{}{}, &protos.Message{Role: "user"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "stream not connected")
 }
@@ -1259,7 +1259,7 @@ func TestSend_Success(t *testing.T) {
 	e.stream = stream
 	comm, _ := newTestComm()
 
-	err := e.chat(context.Background(), comm, internal_type.NormalizedUserTextPacket{ContextID: "ctx-1"}, map[string]interface{}{}, &protos.Message{Role: "user"})
+	err := e.chat(context.Background(), comm, internal_type.UserInputPacket{ContextID: "ctx-1"}, map[string]interface{}{}, &protos.Message{Role: "user"})
 	require.NoError(t, err)
 
 	stream.mu.Lock()
@@ -1279,7 +1279,7 @@ func TestClose_ClearsHistoryAndStream(t *testing.T) {
 	toolExec := e.toolExecutor.(*mockToolExecutor)
 	e.mu.Lock()
 	e.history = append(e.history, &protos.Message{Role: "user"})
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{
+	e.currentPacket = &internal_type.UserInputPacket{
 		ContextID: "ctx-1",
 		Text:      "hello",
 		Language:  mustLanguage(t, "en"),
@@ -1494,7 +1494,7 @@ func TestExecute_UserTextReceivedPacket_HistoryCount(t *testing.T) {
 
 	comm, collector := newTestComm()
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-2",
 		Text:      "follow up",
 	})
@@ -1516,7 +1516,7 @@ func TestExecute_SendError(t *testing.T) {
 	e.stream = stream
 	comm, _ := newTestComm()
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-1",
 		Text:      "test",
 	})
@@ -1535,7 +1535,7 @@ func TestExecute_SendError_HistoryNotModified(t *testing.T) {
 	e.stream = stream
 	comm, _ := newTestComm()
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-1",
 		Text:      "test",
 	})
@@ -1587,7 +1587,7 @@ func TestE2E_FullConversationTurn(t *testing.T) {
 	en := mustLanguage(t, "en")
 
 	// 1. User sends a message
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "turn-1",
 		Text:      "What is Go?",
 		Language:  en,
@@ -1675,7 +1675,7 @@ func TestE2E_MultiTurnConversation(t *testing.T) {
 		ctxID := fmt.Sprintf("turn-%d", turn)
 
 		// User sends
-		err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+		err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 			ContextID: ctxID,
 			Text:      fmt.Sprintf("message %d", turn),
 			Language:  en,
@@ -1728,7 +1728,7 @@ func TestE2E_ToolCallRoundTrip(t *testing.T) {
 	comm, collector := newTestComm()
 
 	// 1. User asks about weather
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "tool-turn",
 		Text:      "weather?",
 		Language:  en,
@@ -1781,7 +1781,7 @@ func TestE2E_InterruptDuringStreaming(t *testing.T) {
 	en := mustLanguage(t, "en")
 
 	// 1. User sends first message
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-1",
 		Text:      "tell me a story",
 		Language:  en,
@@ -1824,7 +1824,7 @@ func TestE2E_InterruptDuringStreaming(t *testing.T) {
 	assert.Len(t, dones, 1, "post-interrupt final passes because currentPacket is nil")
 
 	// 5. User sends new message — pipeline should work
-	err = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-2",
 		Text:      "new topic",
 		Language:  en,
@@ -1900,7 +1900,7 @@ func TestDeadlock_ExecuteAndResponseConcurrent(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 50; i++ {
-			_ = e.Execute(ctx, comm, internal_type.NormalizedUserTextPacket{
+			_ = e.Execute(ctx, comm, internal_type.UserInputPacket{
 				ContextID: fmt.Sprintf("ctx-%d", i),
 				Text:      fmt.Sprintf("msg-%d", i),
 			})
@@ -2060,7 +2060,7 @@ func TestDeadlock_ToolCallWithConcurrentInterrupt(t *testing.T) {
 	defer cancel()
 
 	// User sends
-	_ = e.Execute(ctx, comm, internal_type.NormalizedUserTextPacket{
+	_ = e.Execute(ctx, comm, internal_type.UserInputPacket{
 		ContextID: "ctx-tool-interrupt",
 		Text:      "question",
 		Language:  en,
@@ -2188,7 +2188,7 @@ func TestConsistency_ToolCallAppendsAssistantMessage(t *testing.T) {
 	comm, collector := newTestComm()
 	en := mustLanguage(t, "en")
 
-	_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "atomic-test",
 		Text:      "test",
 		Language:  en,
@@ -2230,14 +2230,14 @@ func TestConsistency_StaleContextDoesNotMutateHistory(t *testing.T) {
 	en := mustLanguage(t, "en")
 
 	// Turn 1
-	_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-old",
 		Text:      "old question",
 		Language:  en,
 	})
 
 	// Turn 2 — supersedes turn 1
-	_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-new",
 		Text:      "new question",
 		Language:  en,
@@ -2275,7 +2275,7 @@ func TestConsistency_CloseResetsAllState(t *testing.T) {
 		})
 	}
 	e.mu.Lock()
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "active"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "active"}
 	e.mu.Unlock()
 
 	_ = e.Close(context.Background())
@@ -2333,7 +2333,7 @@ func TestConcurrency_MassiveParallelInjectAndSnapshot(t *testing.T) {
 	assert.Len(t, snap, writers*injectsPerWriter, "all injected messages should be present")
 }
 
-// TestConcurrency_ExecuteAndInterruptRace runs Execute(NormalizedUserTextPacket)
+// TestConcurrency_ExecuteAndInterruptRace runs Execute(UserInputPacket)
 // and Execute(InterruptionDetectedPacket) concurrently to verify no race on
 // currentPacket.
 func TestConcurrency_ExecuteAndInterruptRace(t *testing.T) {
@@ -2348,7 +2348,7 @@ func TestConcurrency_ExecuteAndInterruptRace(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 100; i++ {
-			_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+			_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 				ContextID: fmt.Sprintf("ctx-%d", i),
 				Text:      fmt.Sprintf("msg-%d", i),
 			})
@@ -2383,7 +2383,7 @@ func TestConcurrency_ResponseAndInterruptRace(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 100; i++ {
-			_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+			_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 				ContextID: fmt.Sprintf("ctx-%d", i),
 				Text:      fmt.Sprintf("msg-%d", i),
 			})
@@ -2440,7 +2440,7 @@ func TestConcurrency_ToolCallWithConcurrentExecute(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 20; i++ {
-			_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+			_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 				ContextID: fmt.Sprintf("user-%d", i),
 				Text:      fmt.Sprintf("msg-%d", i),
 			})
@@ -2489,7 +2489,7 @@ func TestConcurrency_PipelineStaleCheckUnderLoad(t *testing.T) {
 		i := i
 		go func() {
 			defer wg.Done()
-			_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+			_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 				ContextID: fmt.Sprintf("ctx-%d", i),
 				Text:      fmt.Sprintf("msg-%d", i),
 			})
@@ -2648,7 +2648,7 @@ func TestExecute_LLMToolResultPacket_SingleTool_TriggersFollowUp(t *testing.T) {
 
 	// Set up current context so Pipeline recognizes the context.
 	e.mu.Lock()
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-tool"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-tool"}
 	// Pre-populate history: user + assistant(tool_calls:[t1])
 	e.history = []*protos.Message{
 		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "question"}}},
@@ -2688,7 +2688,7 @@ func TestExecute_LLMToolResultPacket_MultiTool_PartialDoesNotTriggerFollowUp(t *
 	comm, _ := newTestComm()
 
 	e.mu.Lock()
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-multi"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-multi"}
 	e.history = []*protos.Message{
 		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "multi"}}},
 		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
@@ -2743,7 +2743,7 @@ func TestExecute_LLMToolResultPacket_MultiTool_OutOfOrderResults(t *testing.T) {
 	comm, _ := newTestComm()
 
 	e.mu.Lock()
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-ooo"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-ooo"}
 	e.history = []*protos.Message{
 		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "ooo"}}},
 		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
@@ -2787,7 +2787,7 @@ func TestExecute_LLMToolResultPacket_DuplicateResult(t *testing.T) {
 	comm, _ := newTestComm()
 
 	e.mu.Lock()
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-dup"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-dup"}
 	e.history = []*protos.Message{
 		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "dup"}}},
 		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
@@ -2847,7 +2847,7 @@ func TestModel_SingleToolRoundTrip(t *testing.T) {
 	}
 
 	// Step 1: User sends a message.
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "round-trip",
 		Text:      "what is the weather?",
 		Language:  en,
@@ -2945,7 +2945,7 @@ func TestModel_MultiToolRoundTrip_AllResolvedTriggersFollowUpOnce(t *testing.T) 
 	}
 
 	// User turn.
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "multi-tool", Text: "plan my trip", Language: en,
 	})
 	require.NoError(t, err)
@@ -3018,7 +3018,7 @@ func TestModel_ToolResult_StaleContext_NoFollowUp(t *testing.T) {
 
 	// Set up initial context and history with pending tool call.
 	e.mu.Lock()
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-new"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-new"}
 	e.history = []*protos.Message{
 		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "old q"}}},
 		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
@@ -3056,7 +3056,7 @@ func TestModel_InterruptionClearsPacket_ToolResultAfterInterrupt(t *testing.T) {
 	comm, _ := newTestComm()
 
 	e.mu.Lock()
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-interrupted"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-interrupted"}
 	e.history = []*protos.Message{
 		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
 			ToolCalls: []*protos.ToolCall{{Id: "t1", Type: "function"}},
@@ -3099,7 +3099,7 @@ func TestModel_NormalCompletion_NoToolCalls(t *testing.T) {
 	}
 	e.toolExecutor = noToolExec
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "no-tools", Text: "hello", Language: en,
 	})
 	require.NoError(t, err)
@@ -3144,7 +3144,7 @@ func TestExecute_LLMToolResultPacket_ResultSerializedAsJSON(t *testing.T) {
 	comm, _ := newTestComm()
 
 	e.mu.Lock()
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-json"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-json"}
 	e.history = []*protos.Message{
 		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
 			ToolCalls: []*protos.ToolCall{{Id: "t1", Type: "function"}},
@@ -3181,7 +3181,7 @@ func TestModel_ToolFollowUp_NilStream_ReturnsError(t *testing.T) {
 	comm, _ := newTestComm()
 
 	e.mu.Lock()
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-nil-stream"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-nil-stream"}
 	e.history = []*protos.Message{
 		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
 			ToolCalls: []*protos.ToolCall{{Id: "t1", Type: "function"}},
@@ -3207,7 +3207,7 @@ func TestModel_ToolFollowUp_SendsFullHistory(t *testing.T) {
 	comm, _ := newTestComm()
 
 	e.mu.Lock()
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-full"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-full"}
 	e.history = []*protos.Message{
 		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "q"}}},
 		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{
@@ -3259,7 +3259,7 @@ func TestConcurrency_MultipleToolResultsConcurrent(t *testing.T) {
 	}
 
 	e.mu.Lock()
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-concurrent"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-concurrent"}
 	e.history = []*protos.Message{
 		{Role: "user", Message: &protos.Message_User{User: &protos.UserMessage{Content: "concurrent"}}},
 		{Role: "assistant", Message: &protos.Message_Assistant{Assistant: &protos.AssistantMessage{

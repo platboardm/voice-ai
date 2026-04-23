@@ -1,10 +1,16 @@
 import { FC } from 'react';
-import { TextInput } from '@/app/components/carbon/form';
+import {
+  FormGroup,
+  Stack,
+  TextArea,
+  TextInput,
+} from '@/app/components/carbon/form';
 import {
   ConfigureToolProps,
   ToolDefinitionForm,
   useParameterManager,
 } from '../common';
+import { InputGroup } from '../../input-group';
 
 export const ConfigureTransferCall: FC<ConfigureToolProps> = ({
   toolDefinition,
@@ -20,8 +26,8 @@ export const ConfigureTransferCall: FC<ConfigureToolProps> = ({
 
   return (
     <>
-      <div className="px-6 pb-6">
-        <div className="flex flex-col gap-6 max-w-6xl">
+      <InputGroup title="Action Definition">
+        <Stack gap={7}>
           <TextInput
             id="transfer-to"
             labelText="Transfer to"
@@ -30,8 +36,18 @@ export const ConfigureTransferCall: FC<ConfigureToolProps> = ({
             onChange={e => updateParameter('tool.transfer_to', e.target.value)}
             placeholder="+14155551234"
           />
-        </div>
-      </div>
+          <TextArea
+            id="transfer-message"
+            labelText="Transfer Message"
+            helperText="The message to be played when transferring the call."
+            value={getParamValue('tool.transfer_message')}
+            onChange={e =>
+              updateParameter('tool.transfer_message', e.target.value)
+            }
+            placeholder="Your transfer message"
+          />
+        </Stack>
+      </InputGroup>
 
       {toolDefinition && onChangeToolDefinition && (
         <ToolDefinitionForm

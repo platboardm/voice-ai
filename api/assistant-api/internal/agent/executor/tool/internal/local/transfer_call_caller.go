@@ -32,7 +32,7 @@ func (tc *transferCallCaller) Call(ctx context.Context, contextID, toolId string
 
 	if tc.transferMessage != "" {
 		communication.OnPacket(ctx,
-			internal_type.SpeakTextPacket{ContextID: contextID, Text: tc.transferMessage, IsFinal: true},
+			internal_type.InjectMessagePacket{ContextID: contextID, Text: tc.transferMessage},
 		)
 	}
 	communication.OnPacket(ctx,

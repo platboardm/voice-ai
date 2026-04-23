@@ -220,7 +220,7 @@ func (rt *rimeTTS) handleServerError(conn *websocket.Conn, response rime_interna
 	conn.Close()
 }
 
-func (rt *rimeTTS) Transform(ctx context.Context, in internal_type.LLMPacket) error {
+func (rt *rimeTTS) Transform(ctx context.Context, in internal_type.Packet) error {
 	rt.mu.Lock()
 	if in.ContextId() != rt.contextId {
 		rt.contextId = in.ContextId()
@@ -256,7 +256,7 @@ func (rt *rimeTTS) Transform(ctx context.Context, in internal_type.LLMPacket) er
 		}
 		return nil
 
-	case internal_type.LLMResponseDeltaPacket:
+	case internal_type.TTSTextPacket:
 		// Fallback reconnect: handles Initialize() failure during interrupt or
 		// an unintentional connection drop between turns.
 		if connection == nil {
@@ -286,7 +286,7 @@ func (rt *rimeTTS) Transform(ctx context.Context, in internal_type.LLMPacket) er
 			Time: time.Now(),
 		})
 
-	case internal_type.LLMResponseDonePacket:
+	case internal_type.TTSDonePacket:
 		// Interrupted before done arrived — nothing to flush.
 		if connection == nil {
 			return nil

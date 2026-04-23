@@ -240,7 +240,7 @@ func ttsGetSignatureKey(secret, dateStamp, region, service string) []byte {
 	return ttsHmacSHA256(kService, []byte("aws4_request"))
 }
 
-func (t *awsTTS) Transform(ctx context.Context, in internal_type.LLMPacket) error {
+func (t *awsTTS) Transform(ctx context.Context, in internal_type.Packet) error {
 	t.mu.Lock()
 	currentCtx := t.contextId
 	if in.ContextId() != t.contextId {
@@ -266,7 +266,7 @@ func (t *awsTTS) Transform(ctx context.Context, in internal_type.LLMPacket) erro
 			})
 		}
 		return nil
-	case internal_type.LLMResponseDeltaPacket:
+	case internal_type.TTSTextPacket:
 		t.mu.Lock()
 		if t.ttsStartedAt.IsZero() {
 			t.ttsStartedAt = time.Now()
@@ -281,7 +281,7 @@ func (t *awsTTS) Transform(ctx context.Context, in internal_type.LLMPacket) erro
 			},
 			Time: time.Now(),
 		})
-	case internal_type.LLMResponseDonePacket:
+	case internal_type.TTSDonePacket:
 		t.flush()
 		return nil
 	default:

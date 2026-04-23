@@ -18,7 +18,7 @@ type AgentPipeline interface {
 }
 
 type UserTurnPipeline struct {
-	Packet internal_type.NormalizedUserTextPacket
+	Packet internal_type.UserInputPacket
 }
 
 type InjectMessagePipeline struct {

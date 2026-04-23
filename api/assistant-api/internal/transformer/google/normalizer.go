@@ -7,12 +7,10 @@
 package internal_transformer_google
 
 import (
-	"context"
 	"fmt"
 	"regexp"
 	"strings"
 
-	internal_normalizers "github.com/rapidaai/api/assistant-api/internal/normalizers"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
@@ -28,9 +26,6 @@ type googleNormalizer struct {
 	logger   commons.Logger
 	config   internal_type.NormalizerConfig
 	language string
-
-	// normalizer pipeline
-	normalizers []internal_normalizers.Normalizer
 
 	// conjunction handling
 	conjunctionPattern *regexp.Regexp
@@ -60,34 +55,19 @@ func NewGoogleNormalizer(logger commons.Logger, opts utils.Option) internal_type
 		cfg.PauseDurationMs = conjunctionBreak
 	}
 
-	// Build normalizer pipeline based on speaker.pronunciation.dictionaries
-	var normalizers []internal_normalizers.Normalizer
-	if dictionaries, err := opts.GetString("speaker.pronunciation.dictionaries"); err == nil && dictionaries != "" {
-		normalizerNames := strings.Split(dictionaries, commons.SEPARATOR)
-		normalizers = internal_type.BuildNormalizerPipeline(logger, normalizerNames)
-	}
-
 	return &googleNormalizer{
 		logger:             logger,
 		config:             cfg,
 		language:           language,
-		normalizers:        normalizers,
 		conjunctionPattern: conjunctionPattern,
 	}
 }
 
 // Normalize applies Google-specific text transformations.
-func (n *googleNormalizer) Normalize(ctx context.Context, text string) string {
+// Markdown removal and whitespace normalization are handled upstream.
+func (n *googleNormalizer) Normalize(text string) string {
 	if text == "" {
 		return text
-	}
-
-	// Clean markdown first
-	text = n.removeMarkdown(text)
-
-	// Apply normalizer pipeline
-	for _, normalizer := range n.normalizers {
-		text = normalizer.Normalize(text)
 	}
 
 	// Escape XML special characters for SSML safety (Google uses SSML)
@@ -98,43 +78,12 @@ func (n *googleNormalizer) Normalize(ctx context.Context, text string) string {
 		text = n.insertConjunctionBreaks(text)
 	}
 
-	return n.normalizeWhitespace(text)
+	return text
 }
 
 // =============================================================================
 // Private Helpers
 // =============================================================================
-
-func (n *googleNormalizer) removeMarkdown(input string) string {
-	re := regexp.MustCompile(`(?m)^#{1,6}\s*`)
-	output := re.ReplaceAllString(input, "")
-
-	re = regexp.MustCompile(`\*{1,2}([^*]+?)\*{1,2}|_{1,2}([^_]+?)_{1,2}`)
-	output = re.ReplaceAllString(output, "$1$2")
-
-	re = regexp.MustCompile("`([^`]+)`")
-	output = re.ReplaceAllString(output, "$1")
-
-	re = regexp.MustCompile("(?s)```[^`]*```")
-	output = re.ReplaceAllString(output, "")
-
-	re = regexp.MustCompile(`(?m)^>\s?`)
-	output = re.ReplaceAllString(output, "")
-
-	re = regexp.MustCompile(`\[(.*?)\]\(.*?\)`)
-	output = re.ReplaceAllString(output, "$1")
-
-	re = regexp.MustCompile(`!\[(.*?)\]\(.*?\)`)
-	output = re.ReplaceAllString(output, "$1")
-
-	re = regexp.MustCompile(`(?m)^(-{3,}|\*{3,}|_{3,})$`)
-	output = re.ReplaceAllString(output, "")
-
-	re = regexp.MustCompile(`[*_]+`)
-	output = re.ReplaceAllString(output, "")
-
-	return output
-}
 
 // escapeXML escapes XML special characters for SSML (Google uses fewer escapes).
 func (n *googleNormalizer) escapeXML(text string) string {
@@ -151,12 +100,6 @@ func (n *googleNormalizer) insertConjunctionBreaks(text string) string {
 	return n.conjunctionPattern.ReplaceAllStringFunc(text, func(match string) string {
 		return match + breakTag
 	})
-}
-
-func (n *googleNormalizer) normalizeWhitespace(text string) string {
-	re := regexp.MustCompile(`\s+`)
-	result := re.ReplaceAllString(text, " ")
-	return strings.TrimSpace(result)
 }
 
 // =============================================================================

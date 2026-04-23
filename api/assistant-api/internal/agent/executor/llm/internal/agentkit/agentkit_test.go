@@ -394,7 +394,7 @@ func TestExecute_UserTextReceivedPacket(t *testing.T) {
 	e.talker = talker
 	comm, collector := newTestComm()
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-1",
 		Text:      "hello world",
 	})
@@ -687,7 +687,7 @@ func TestExecute_UserTextReceivedPacket_SendError(t *testing.T) {
 	e.talker = talker
 	comm, _ := newTestComm()
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-1",
 		Text:      "hello",
 	})
@@ -837,7 +837,7 @@ func TestExecute_AfterClose(t *testing.T) {
 	_ = e.Close(context.Background())
 
 	comm, _ := newTestComm()
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-1",
 		Text:      "after close",
 	})
@@ -986,7 +986,7 @@ func TestE2E_FullConversationTurn(t *testing.T) {
 	comm, collector := newTestComm()
 
 	// 1. User sends a message
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "turn-1",
 		Text:      "What is Go?",
 	})
@@ -1040,7 +1040,7 @@ func TestE2E_MultiTurnConversation(t *testing.T) {
 
 	for turn := 1; turn <= 5; turn++ {
 		ctxID := fmt.Sprintf("turn-%d", turn)
-		_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+		_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 			ContextID: ctxID, Text: fmt.Sprintf("msg-%d", turn),
 		})
 		e.handleResponse(context.Background(), comm, &protos.TalkOutput{
@@ -1069,7 +1069,7 @@ func TestE2E_InterruptDuringStreaming(t *testing.T) {
 	comm, collector := newTestComm()
 
 	// User sends
-	_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-1", Text: "tell me a story",
 	})
 
@@ -1085,7 +1085,7 @@ func TestE2E_InterruptDuringStreaming(t *testing.T) {
 	assert.Equal(t, "", e.currentID)
 
 	// New context
-	_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+	_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-2", Text: "new topic",
 	})
 
@@ -1229,7 +1229,7 @@ func TestDeadlock_ExecuteAndResponseConcurrent(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 50; i++ {
-			_ = e.Execute(ctx, comm, internal_type.NormalizedUserTextPacket{
+			_ = e.Execute(ctx, comm, internal_type.UserInputPacket{
 				ContextID: fmt.Sprintf("ctx-%d", i),
 				Text:      fmt.Sprintf("msg-%d", i),
 			})
@@ -1282,7 +1282,7 @@ func TestDeadlock_ListenAndExecuteAndClose(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 20; i++ {
-			_ = e.Execute(ctx, comm, internal_type.NormalizedUserTextPacket{
+			_ = e.Execute(ctx, comm, internal_type.UserInputPacket{
 				ContextID: fmt.Sprintf("ctx-%d", i),
 				Text:      fmt.Sprintf("msg-%d", i),
 			})
@@ -1329,7 +1329,7 @@ func TestConcurrency_ExecuteAndInterruptRace(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 100; i++ {
-			_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+			_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 				ContextID: fmt.Sprintf("ctx-%d", i),
 				Text:      fmt.Sprintf("msg-%d", i),
 			})
@@ -1360,7 +1360,7 @@ func TestConcurrency_ResponseAndInterruptRace(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 100; i++ {
-			_ = e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{
+			_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 				ContextID: fmt.Sprintf("ctx-%d", i),
 				Text:      fmt.Sprintf("msg-%d", i),
 			})

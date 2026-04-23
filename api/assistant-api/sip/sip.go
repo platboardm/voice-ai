@@ -523,7 +523,6 @@ func (m *SIPEngine) reconcileRegistrations(ctx context.Context) {
 		if did == "" {
 			continue
 		}
-		did = sip_infra.NormalizeDID(did)
 		credentialID, err := opts.GetUint64("rapida.credential_id")
 		if err != nil {
 			continue
@@ -761,7 +760,7 @@ func (m *SIPEngine) RegisterAssistant(ctx context.Context, auth types.SimplePrin
 	}
 
 	return m.registrationClient.Register(ctx, &sip_infra.Registration{
-		DID:         sip_infra.NormalizeDID(did),
+		DID:         did,
 		Config:      sipConfig,
 		AssistantID: assistantID,
 	})

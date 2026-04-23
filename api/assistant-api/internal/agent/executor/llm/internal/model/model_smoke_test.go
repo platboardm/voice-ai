@@ -133,7 +133,7 @@ func findPacket[T any](pkts []internal_type.Packet) (T, bool) {
 func TestModel_ExecuteUserTurn_SendsChatAndAppendsUser(t *testing.T) {
 	e, comm, stream, _ := newModelTestEnv(t)
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{ContextID: "ctx-1", Text: "hello"})
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{ContextID: "ctx-1", Text: "hello"})
 	require.NoError(t, err)
 	require.Len(t, stream.sendCalls, 1)
 	msgs := stream.sendCalls[0].GetConversations()
@@ -152,7 +152,7 @@ func TestModel_ExecuteUserTurn_BlocksInvalidHistory(t *testing.T) {
 	e, comm, stream, _ := newModelTestEnv(t)
 	e.history.messages = append(e.history.messages, &protos.Message{Role: "tool", Message: &protos.Message_Tool{Tool: &protos.ToolMessage{}}})
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{ContextID: "ctx-1", Text: "hello"})
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{ContextID: "ctx-1", Text: "hello"})
 	require.NoError(t, err)
 	require.Len(t, stream.sendCalls, 0)
 
@@ -204,7 +204,7 @@ func TestModel_ToolResultResolved_TriggersFollowUp(t *testing.T) {
 
 func TestModel_Interruption_ClearsCurrentAndSupersedesPending(t *testing.T) {
 	e, comm, _, _ := newModelTestEnv(t)
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-1", Text: "hello"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-1", Text: "hello"}
 	e.history.AppendAssistant("ctx-1", testToolAssistantMessage("t1"))
 
 	err := e.Execute(context.Background(), comm, internal_type.InterruptionDetectedPacket{ContextID: "ctx-1"})
@@ -233,7 +233,7 @@ func TestModel_ResponsePipeline_DropsStaleResponse(t *testing.T) {
 
 func TestModel_ResponsePipeline_Error_EmitsLLMErrorAndEvent(t *testing.T) {
 	e, comm, _, _ := newModelTestEnv(t)
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-1"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-1"}
 
 	e.Run(context.Background(), comm, ResponsePipeline{Response: &protos.ChatResponse{
 		RequestId: "ctx-1",
@@ -252,7 +252,7 @@ func TestModel_ResponsePipeline_Error_EmitsLLMErrorAndEvent(t *testing.T) {
 
 func TestModel_ResponsePipeline_Chunk_EmitsDeltaEvenWhenEmpty(t *testing.T) {
 	e, comm, _, _ := newModelTestEnv(t)
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-1"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-1"}
 
 	e.Run(context.Background(), comm, ResponsePipeline{Response: &protos.ChatResponse{
 		RequestId: "ctx-1",
@@ -268,7 +268,7 @@ func TestModel_ResponsePipeline_Chunk_EmitsDeltaEvenWhenEmpty(t *testing.T) {
 
 func TestModel_ResponsePipeline_DoneWithToolCalls_ExecutesToolsAndOpensBlock(t *testing.T) {
 	e, comm, _, toolExec := newModelTestEnv(t)
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-1"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-1"}
 
 	e.Run(context.Background(), comm, ResponsePipeline{Response: &protos.ChatResponse{
 		RequestId:    "ctx-1",
@@ -290,7 +290,7 @@ func TestModel_ResponsePipeline_DoneWithToolCalls_ExecutesToolsAndOpensBlock(t *
 
 func TestModel_ResponsePipeline_DoneWithoutToolCalls_AppendsAssistant(t *testing.T) {
 	e, comm, _, toolExec := newModelTestEnv(t)
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-1"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-1"}
 
 	e.Run(context.Background(), comm, ResponsePipeline{Response: &protos.ChatResponse{
 		RequestId:    "ctx-1",
@@ -321,7 +321,7 @@ func TestModel_ExecuteUserTurn_SupersedesOpenToolBlock(t *testing.T) {
 	e, comm, _, _ := newModelTestEnv(t)
 	e.history.AppendAssistant("ctx-old", testToolAssistantMessage("t1"))
 
-	err := e.Execute(context.Background(), comm, internal_type.NormalizedUserTextPacket{ContextID: "ctx-new", Text: "new user msg"})
+	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{ContextID: "ctx-new", Text: "new user msg"})
 	require.NoError(t, err)
 
 	evt, ok := findPacket[internal_type.ConversationEventPacket](comm.pkts)
@@ -352,7 +352,7 @@ func TestModel_CurrentContextAndStaleCheck(t *testing.T) {
 	require.True(t, e.isStaleResponse("ctx-1"))
 	require.Equal(t, "", e.currentContextID())
 
-	e.currentPacket = &internal_type.NormalizedUserTextPacket{ContextID: "ctx-1"}
+	e.currentPacket = &internal_type.UserInputPacket{ContextID: "ctx-1"}
 	require.False(t, e.isStaleResponse("ctx-1"))
 	require.True(t, e.isStaleResponse("ctx-2"))
 	require.Equal(t, "ctx-1", e.currentContextID())
@@ -377,7 +377,7 @@ func TestModel_Listen_RecvError_EmitsSystemPanic(t *testing.T) {
 		logger:        logger,
 		history:       NewConversationHistory(),
 		stream:        errStream,
-		currentPacket: &internal_type.NormalizedUserTextPacket{ContextID: "ctx-1"},
+		currentPacket: &internal_type.UserInputPacket{ContextID: "ctx-1"},
 	}
 	comm := &testComm{}
 

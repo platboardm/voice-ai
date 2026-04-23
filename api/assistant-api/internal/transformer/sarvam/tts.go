@@ -236,7 +236,7 @@ func (rt *sarvamTextToSpeech) handleServerError(conn *websocket.Conn, response s
 	conn.Close()
 }
 
-func (rt *sarvamTextToSpeech) Transform(ctx context.Context, in internal_type.LLMPacket) error {
+func (rt *sarvamTextToSpeech) Transform(ctx context.Context, in internal_type.Packet) error {
 	rt.mu.Lock()
 	if in.ContextId() != rt.contextId {
 		rt.contextId = in.ContextId()
@@ -272,7 +272,7 @@ func (rt *sarvamTextToSpeech) Transform(ctx context.Context, in internal_type.LL
 		}
 		return nil
 
-	case internal_type.LLMResponseDeltaPacket:
+	case internal_type.TTSTextPacket:
 		// Fallback reconnect: handles Initialize() failure during interrupt or
 		// an unintentional connection drop between turns.
 		if connection == nil {
@@ -305,7 +305,7 @@ func (rt *sarvamTextToSpeech) Transform(ctx context.Context, in internal_type.LL
 			Time: time.Now(),
 		})
 
-	case internal_type.LLMResponseDonePacket:
+	case internal_type.TTSDonePacket:
 		// Interrupted before done arrived — nothing to flush.
 		if connection == nil {
 			return nil

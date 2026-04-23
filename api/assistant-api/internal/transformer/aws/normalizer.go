@@ -7,12 +7,10 @@
 package internal_transformer_aws
 
 import (
-	"context"
 	"fmt"
 	"regexp"
 	"strings"
 
-	internal_normalizers "github.com/rapidaai/api/assistant-api/internal/normalizers"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
@@ -27,9 +25,6 @@ import (
 type awsNormalizer struct {
 	logger commons.Logger
 	config internal_type.NormalizerConfig
-
-	// normalizer pipeline
-	normalizers []internal_normalizers.Normalizer
 
 	// conjunction handling
 	conjunctionPattern *regexp.Regexp
@@ -58,92 +53,34 @@ func NewAWSNormalizer(logger commons.Logger, opts utils.Option) internal_type.Te
 		cfg.PauseDurationMs = conjunctionBreak
 	}
 
-	// Build normalizer pipeline based on speaker.pronunciation.dictionaries
-	var normalizers []internal_normalizers.Normalizer
-	if dictionaries, err := opts.GetString("speaker.pronunciation.dictionaries"); err == nil && dictionaries != "" {
-		normalizerNames := strings.Split(dictionaries, commons.SEPARATOR)
-		normalizers = internal_type.BuildNormalizerPipeline(logger, normalizerNames)
-	}
-
 	return &awsNormalizer{
 		logger:             logger,
 		config:             cfg,
-		normalizers:        normalizers,
 		conjunctionPattern: conjunctionPattern,
 	}
 }
 
-// buildNormalizerPipeline creates normalizers based on the provided names.
-// Supported normalizer names: url, currency, date, time, number, symbol,
-// general-abbreviation, role-abbreviation, tech-abbreviation, address
-
 // Normalize applies AWS Polly-specific text transformations.
-func (n *awsNormalizer) Normalize(ctx context.Context, text string) string {
+// Markdown removal and whitespace normalization are handled upstream.
+func (n *awsNormalizer) Normalize(text string) string {
 	if text == "" {
 		return text
 	}
 
-	// Clean markdown first (always applied)
-	text = n.removeMarkdown(text)
-
-	// Apply normalizer pipeline (only if configured)
-	for _, normalizer := range n.normalizers {
-		text = normalizer.Normalize(text)
-	}
-
 	// Escape XML special characters for SSML safety
 	text = n.escapeXML(text)
+
 	// Insert breaks after conjunction boundaries (only if configured)
 	if n.conjunctionPattern != nil && n.config.PauseDurationMs > 0 {
 		text = n.insertConjunctionBreaks(text)
 	}
-	return n.normalizeWhitespace(text)
+
+	return text
 }
 
 // =============================================================================
 // Private Helpers
 // =============================================================================
-
-// removeMarkdown strips markdown formatting from text.
-func (n *awsNormalizer) removeMarkdown(input string) string {
-	// Remove headers (#, ##, ### ...)
-	re := regexp.MustCompile(`(?m)^#{1,6}\s*`)
-	output := re.ReplaceAllString(input, "")
-
-	// Remove bold/italic markers (*, **, _, __)
-	re = regexp.MustCompile(`\*{1,2}([^*]+?)\*{1,2}|_{1,2}([^_]+?)_{1,2}`)
-	output = re.ReplaceAllString(output, "$1$2")
-
-	// Remove inline code/backticks
-	re = regexp.MustCompile("`([^`]+)`")
-	output = re.ReplaceAllString(output, "$1")
-
-	// Remove code blocks
-	re = regexp.MustCompile("(?s)```[^`]*```")
-	output = re.ReplaceAllString(output, "")
-
-	// Remove blockquotes (>)
-	re = regexp.MustCompile(`(?m)^>\s?`)
-	output = re.ReplaceAllString(output, "")
-
-	// Remove links [text](url) → keep text
-	re = regexp.MustCompile(`\[(.*?)\]\(.*?\)`)
-	output = re.ReplaceAllString(output, "$1")
-
-	// Remove images ![alt](url) → keep alt
-	re = regexp.MustCompile(`!\[(.*?)\]\(.*?\)`)
-	output = re.ReplaceAllString(output, "$1")
-
-	// Remove horizontal rules (---, ***)
-	re = regexp.MustCompile(`(?m)^(-{3,}|\*{3,}|_{3,})$`)
-	output = re.ReplaceAllString(output, "")
-
-	// Remove extra asterisks/underscores
-	re = regexp.MustCompile(`[*_]+`)
-	output = re.ReplaceAllString(output, "")
-
-	return output
-}
 
 // escapeXML escapes XML special characters for SSML.
 func (n *awsNormalizer) escapeXML(text string) string {
@@ -163,13 +100,6 @@ func (n *awsNormalizer) insertConjunctionBreaks(text string) string {
 	return n.conjunctionPattern.ReplaceAllStringFunc(text, func(match string) string {
 		return match + breakTag
 	})
-}
-
-// normalizeWhitespace collapses multiple spaces and trims.
-func (n *awsNormalizer) normalizeWhitespace(text string) string {
-	re := regexp.MustCompile(`\s+`)
-	result := re.ReplaceAllString(text, " ")
-	return strings.TrimSpace(result)
 }
 
 // =============================================================================

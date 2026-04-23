@@ -185,7 +185,7 @@ func (rt *resembleaiTTS) readLoop(conn *websocket.Conn) {
 	}
 }
 
-func (t *resembleaiTTS) Transform(ctx context.Context, in internal_type.LLMPacket) error {
+func (t *resembleaiTTS) Transform(ctx context.Context, in internal_type.Packet) error {
 	t.mu.Lock()
 	if in.ContextId() != t.contextId {
 		t.contextId = in.ContextId()
@@ -217,7 +217,7 @@ func (t *resembleaiTTS) Transform(ctx context.Context, in internal_type.LLMPacke
 		}
 		return nil
 
-	case internal_type.LLMResponseDeltaPacket:
+	case internal_type.TTSTextPacket:
 		// Fallback reconnect: handles Initialize() failure or an unintentional drop.
 		if connection == nil {
 			if err := t.Initialize(); err != nil {
@@ -257,7 +257,7 @@ func (t *resembleaiTTS) Transform(ctx context.Context, in internal_type.LLMPacke
 		})
 		return nil
 
-	case internal_type.LLMResponseDonePacket:
+	case internal_type.TTSDonePacket:
 		// TextToSpeechEndPacket is emitted by handleFlushComplete once audio_end received.
 		return nil
 

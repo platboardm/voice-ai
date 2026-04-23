@@ -72,7 +72,7 @@ func (r *genericRequestor) initializeGreeting(ctx context.Context, behavior *int
 		return
 	}
 
-	greetingContent := r.templateParser.Parse(*behavior.Greeting, r.GetArgs())
+	greetingContent := *behavior.Greeting
 	if strings.TrimSpace(greetingContent) == "" {
 		return
 	}
@@ -88,6 +88,17 @@ func (r *genericRequestor) initializeGreeting(ctx context.Context, behavior *int
 	); err != nil {
 		r.logger.Errorf("error while sending greeting message: %v", err)
 	}
+}
+
+// restartTimers restarts idle timeout and max session duration timers from scratch.
+// Called after an action tool call completes (e.g., transfer returns to agent).
+func (r *genericRequestor) restartTimers(ctx context.Context) {
+	behavior, err := r.GetBehavior()
+	if err != nil {
+		return
+	}
+	r.startIdleTimeoutTimer(ctx)
+	r.initializeMaxSessionDuration(ctx, behavior)
 }
 
 // initializeIdleTimeout starts the idle timeout timer if configured.
@@ -123,7 +134,7 @@ func (r *genericRequestor) OnError(ctx context.Context) error {
 
 	mistakeContent := defaultMistakeMessage
 	if behavior.Mistake != nil {
-		mistakeContent = r.templateParser.Parse(*behavior.Mistake, r.GetArgs())
+		mistakeContent = *behavior.Mistake
 	}
 
 	r.Transition(Interrupted)
@@ -209,7 +220,7 @@ func (r *genericRequestor) getIdleTimeoutMessage(behavior *internal_assistant_en
 	const defaultTimeoutMessage = "Are you still there?"
 
 	if behavior.IdleTimeoutMessage != nil && strings.TrimSpace(*behavior.IdleTimeoutMessage) != "" {
-		return r.templateParser.Parse(*behavior.IdleTimeoutMessage, r.GetArgs())
+		return *behavior.IdleTimeoutMessage
 	}
 
 	return defaultTimeoutMessage

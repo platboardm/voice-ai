@@ -183,7 +183,7 @@ func (cst *cartesiaTTS) readLoop(conn *websocket.Conn) {
 	}
 }
 
-func (ct *cartesiaTTS) Transform(ctx context.Context, in internal_type.LLMPacket) error {
+func (ct *cartesiaTTS) Transform(ctx context.Context, in internal_type.Packet) error {
 	ct.mu.Lock()
 	if in.ContextId() != ct.contextId {
 		ct.contextId = in.ContextId()
@@ -215,7 +215,7 @@ func (ct *cartesiaTTS) Transform(ctx context.Context, in internal_type.LLMPacket
 		}
 		return nil
 
-	case internal_type.LLMResponseDeltaPacket:
+	case internal_type.TTSTextPacket:
 		// Fallback reconnect: handles Initialize() failure or an unintentional drop.
 		if connection == nil {
 			if err := ct.Initialize(); err != nil {
@@ -250,7 +250,7 @@ func (ct *cartesiaTTS) Transform(ctx context.Context, in internal_type.LLMPacket
 			Time: time.Now(),
 		})
 
-	case internal_type.LLMResponseDonePacket:
+	case internal_type.TTSDonePacket:
 		// Interrupted before done arrived — nothing to flush.
 		if connection == nil {
 			return nil

@@ -131,7 +131,7 @@ func (google *googleTextToSpeech) Initialize() error {
 }
 
 // Transform handles streaming synthesis requests for input text.
-func (google *googleTextToSpeech) Transform(ctx context.Context, in internal_type.LLMPacket) error {
+func (google *googleTextToSpeech) Transform(ctx context.Context, in internal_type.Packet) error {
 	google.mu.Lock()
 	currentCtx := google.contextId
 	if in.ContextId() != google.contextId {
@@ -165,13 +165,13 @@ func (google *googleTextToSpeech) Transform(ctx context.Context, in internal_typ
 			google.mu.Unlock()
 		}
 		return nil
-	case internal_type.LLMResponseDeltaPacket:
+	case internal_type.TTSTextPacket:
 		google.mu.Lock()
 		if google.ttsStartedAt.IsZero() {
 			google.ttsStartedAt = time.Now()
 		}
 		google.mu.Unlock()
-		normalized := google.normalizer.Normalize(ctx, input.Text)
+		normalized := google.normalizer.Normalize(input.Text)
 		if err := sCli.Send(&texttospeechpb.StreamingSynthesizeRequest{
 			StreamingRequest: &texttospeechpb.StreamingSynthesizeRequest_Input{
 				Input: &texttospeechpb.StreamingSynthesisInput{
@@ -191,7 +191,7 @@ func (google *googleTextToSpeech) Transform(ctx context.Context, in internal_typ
 			Time: time.Now(),
 		})
 		return nil
-	case internal_type.LLMResponseDonePacket:
+	case internal_type.TTSDonePacket:
 		// Signal to the server that no more input will be sent.
 		// This triggers server-side EOF → recvLoop emits TextToSpeechEndPacket.
 		if err := sCli.CloseSend(); err != nil {

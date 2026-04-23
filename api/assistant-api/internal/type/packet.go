@@ -150,14 +150,14 @@ type InterimEndOfSpeechPacket struct {
 
 func (p InterimEndOfSpeechPacket) ContextId() string { return p.ContextID }
 
-// NormalizedUserTextPacket carries the final normalized user text after language detection.
-type NormalizedUserTextPacket struct {
+// UserInputPacket carries the processed user text after input preprocessing (language detection, etc.).
+type UserInputPacket struct {
 	ContextID string
 	Text      string
 	Language  types.Language
 }
 
-func (f NormalizedUserTextPacket) ContextId() string { return f.ContextID }
+func (f UserInputPacket) ContextId() string { return f.ContextID }
 
 // NormalizeInputPacket triggers the input normalizer with the finalized speech.
 // Isolates the normalization step so it can be swapped or skipped without
@@ -232,15 +232,6 @@ func (f InjectMessagePacket) Role() string      { return "rapida" }
 // =============================================================================
 // LLM Pipeline — execute -> delta -> done -> error -> tools
 // =============================================================================
-
-// ExecuteLLMPacket triggers the LLM pipeline with the user's final transcript.
-type ExecuteLLMPacket struct {
-	ContextID  string
-	Input      string
-	Normalized NormalizedUserTextPacket
-}
-
-func (f ExecuteLLMPacket) ContextId() string { return f.ContextID }
 
 // LLMResponseDeltaPacket represents a streaming text delta from the LLM.
 type LLMResponseDeltaPacket struct {
@@ -380,9 +371,24 @@ func (f *LLMToolResultPacket) UnmarshalJSON(data []byte) error {
 // Output Pipeline — aggregate -> speak -> TTS audio -> TTS end
 // =============================================================================
 
-// AggregateTextPacket triggers the text aggregator with validated LLM output.
-// The aggregator batches deltas into sentence-sized chunks before emitting
-// SpeakTextPacket. IsFinal=true signals end of generation.
+// TTSTextPacket carries a sentence-ready text chunk for TTS synthesis.
+type TTSTextPacket struct {
+	ContextID string
+	Text      string
+}
+
+func (f TTSTextPacket) ContextId() string { return f.ContextID }
+
+// TTSDonePacket signals end of this turn's output. TTS flushes remaining audio.
+type TTSDonePacket struct {
+	ContextID string
+	Text      string
+}
+
+func (f TTSDonePacket) ContextId() string { return f.ContextID }
+
+// --- Legacy types kept during migration. Do not use in new code. ---
+
 type AggregateTextPacket struct {
 	ContextID string
 	Text      string
@@ -391,8 +397,6 @@ type AggregateTextPacket struct {
 
 func (f AggregateTextPacket) ContextId() string { return f.ContextID }
 
-// SpeakTextPacket routes text into the TTS pipeline or directly to the client.
-// IsFinal=true signals a flush (end of generation); IsFinal=false is a streaming delta.
 type SpeakTextPacket struct {
 	ContextID string
 	Text      string
@@ -455,6 +459,25 @@ type SaveMessagePacket struct {
 func (f SaveMessagePacket) ContextId() string { return f.ContextID }
 func (f SaveMessagePacket) Role() string      { return f.MessageRole }
 func (f SaveMessagePacket) Content() string   { return f.Text }
+
+// ToolLogCreatePacket persists a tool call start to the database.
+type ToolLogCreatePacket struct {
+	ContextID string
+	ToolID    string
+	Name      string
+	Request   []byte
+}
+
+func (f ToolLogCreatePacket) ContextId() string { return f.ContextID }
+
+// ToolLogUpdatePacket persists a tool call result to the database.
+type ToolLogUpdatePacket struct {
+	ContextID string
+	ToolID    string
+	Response  []byte
+}
+
+func (f ToolLogUpdatePacket) ContextId() string { return f.ContextID }
 
 // =============================================================================
 // Metrics & Metadata

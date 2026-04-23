@@ -119,7 +119,7 @@ func (e *agentkitExecutor) GetToolExecutor() internal_agent_executor.ToolExecuto
 
 func (e *agentkitExecutor) Execute(ctx context.Context, comm internal_type.Communication, pctk internal_type.Packet) error {
 	switch p := pctk.(type) {
-	case internal_type.NormalizedUserTextPacket:
+	case internal_type.UserInputPacket:
 		return e.Run(ctx, comm, UserTurnPipeline{Packet: p})
 	case internal_type.UserTextReceivedPacket:
 		return e.Run(ctx, comm, UserTextPipeline{Packet: p})

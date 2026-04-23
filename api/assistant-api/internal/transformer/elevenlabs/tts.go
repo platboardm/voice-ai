@@ -179,7 +179,7 @@ func (elt *elevenlabsTTS) handleFlushComplete(conn *websocket.Conn) {
 	conn.Close()
 }
 
-func (t *elevenlabsTTS) Transform(ctx context.Context, in internal_type.LLMPacket) error {
+func (t *elevenlabsTTS) Transform(ctx context.Context, in internal_type.Packet) error {
 	t.mu.Lock()
 	if in.ContextId() != t.contextId {
 		t.contextId = in.ContextId()
@@ -211,7 +211,7 @@ func (t *elevenlabsTTS) Transform(ctx context.Context, in internal_type.LLMPacke
 		}
 		return nil
 
-	case internal_type.LLMResponseDeltaPacket:
+	case internal_type.TTSTextPacket:
 		// Fallback reconnect: handles Initialize() failure or an unintentional drop.
 		if connection == nil {
 			if err := t.Initialize(); err != nil {
@@ -247,7 +247,7 @@ func (t *elevenlabsTTS) Transform(ctx context.Context, in internal_type.LLMPacke
 			Time: time.Now(),
 		})
 
-	case internal_type.LLMResponseDonePacket:
+	case internal_type.TTSDonePacket:
 		// Interrupted before done arrived — nothing to flush.
 		if connection == nil {
 			return nil

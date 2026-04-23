@@ -195,7 +195,7 @@ func (t *minimaxTTS) streamHTTPTTS(text string, ctxId string) {
 	)
 }
 
-func (t *minimaxTTS) Transform(ctx context.Context, in internal_type.LLMPacket) error {
+func (t *minimaxTTS) Transform(ctx context.Context, in internal_type.Packet) error {
 	t.mu.Lock()
 	currentCtx := t.contextId
 	if in.ContextId() != t.contextId {
@@ -221,7 +221,7 @@ func (t *minimaxTTS) Transform(ctx context.Context, in internal_type.LLMPacket) 
 			})
 		}
 		return nil
-	case internal_type.LLMResponseDeltaPacket:
+	case internal_type.TTSTextPacket:
 		t.mu.Lock()
 		if t.ttsStartedAt.IsZero() {
 			t.ttsStartedAt = time.Now()
@@ -236,7 +236,7 @@ func (t *minimaxTTS) Transform(ctx context.Context, in internal_type.LLMPacket) 
 			},
 			Time: time.Now(),
 		})
-	case internal_type.LLMResponseDonePacket:
+	case internal_type.TTSDonePacket:
 		t.flush()
 		return nil
 	default:

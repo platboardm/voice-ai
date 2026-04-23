@@ -39,7 +39,7 @@ type modelAssistantExecutor struct {
 	stream             grpc.BidiStreamingClient[protos.ChatRequest, protos.ChatResponse]
 
 	mu            sync.RWMutex
-	currentPacket *internal_type.NormalizedUserTextPacket
+	currentPacket *internal_type.UserInputPacket
 
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -130,7 +130,7 @@ func (e *modelAssistantExecutor) Close(ctx context.Context) error {
 
 func (e *modelAssistantExecutor) Execute(ctx context.Context, communication internal_type.Communication, pctk internal_type.Packet) error {
 	switch p := pctk.(type) {
-	case internal_type.NormalizedUserTextPacket:
+	case internal_type.UserInputPacket:
 		if supersededCtx := e.history.SupersedePending(); supersededCtx != "" {
 			communication.OnPacket(ctx, internal_type.ConversationEventPacket{
 				ContextID: supersededCtx, Name: "tool", Time: time.Now(),
@@ -187,7 +187,7 @@ func (e *modelAssistantExecutor) Run(ctx context.Context, communication internal
 // Pipeline handlers
 // =============================================================================
 
-func (e *modelAssistantExecutor) handleUserTurn(ctx context.Context, communication internal_type.Communication, p internal_type.NormalizedUserTextPacket) {
+func (e *modelAssistantExecutor) handleUserTurn(ctx context.Context, communication internal_type.Communication, p internal_type.UserInputPacket) {
 	snapshot := e.history.Snapshot()
 	promptArgs := e.buildPromptArgs(communication, p)
 
@@ -437,7 +437,7 @@ func (e *modelAssistantExecutor) buildCompletionMetrics(providerMetrics []*proto
 // Prompt argumentation
 // =============================================================================
 
-func (e *modelAssistantExecutor) buildPromptArgs(communication internal_type.Communication, p internal_type.NormalizedUserTextPacket) map[string]interface{} {
+func (e *modelAssistantExecutor) buildPromptArgs(communication internal_type.Communication, p internal_type.UserInputPacket) map[string]interface{} {
 	return utils.MergeMaps(e.buildBasePromptArgs(communication), map[string]interface{}{"message": map[string]interface{}{
 		"text": p.Text, "language_code": p.Language.ISO639_1, "language": p.Language.Name,
 	}})

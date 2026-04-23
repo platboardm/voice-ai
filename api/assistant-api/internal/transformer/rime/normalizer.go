@@ -7,29 +7,13 @@
 package internal_transformer_rime
 
 import (
-	"context"
 	"fmt"
 	"regexp"
 	"strings"
 
-	internal_normalizers "github.com/rapidaai/api/assistant-api/internal/normalizers"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
-)
-
-// Compiled once at package init; Normalize() is called for every LLM delta token.
-var (
-	rimeReHeadings   = regexp.MustCompile(`(?m)^#{1,6}\s*`)
-	rimeReEmphasis   = regexp.MustCompile(`\*{1,2}([^*]+?)\*{1,2}|_{1,2}([^_]+?)_{1,2}`)
-	rimeReInlineCode = regexp.MustCompile("`([^`]+)`")
-	rimeReCodeBlock  = regexp.MustCompile("(?s)```[^`]*```")
-	rimeReBlockquote = regexp.MustCompile(`(?m)^>\s?`)
-	rimeReLink       = regexp.MustCompile(`\[(.*?)\]\(.*?\)`)
-	rimeReImage      = regexp.MustCompile(`!\[(.*?)\]\(.*?\)`)
-	rimeReHRule      = regexp.MustCompile(`(?m)^(-{3,}|\*{3,}|_{3,})$`)
-	rimeReLeftover   = regexp.MustCompile(`[*_]+`)
-	rimeReWhitespace = regexp.MustCompile(`\s+`)
 )
 
 // rimeNormalizer handles Rime TTS text preprocessing.
@@ -38,8 +22,6 @@ type rimeNormalizer struct {
 	logger   commons.Logger
 	config   internal_type.NormalizerConfig
 	language string
-
-	normalizers []internal_normalizers.Normalizer
 
 	// conjunctionPattern is instance-level: compiled from user-configured boundaries.
 	conjunctionPattern *regexp.Regexp
@@ -68,57 +50,32 @@ func NewRimeNormalizer(logger commons.Logger, opts utils.Option) internal_type.T
 		cfg.PauseDurationMs = conjunctionBreak
 	}
 
-	var normalizers []internal_normalizers.Normalizer
-	if dictionaries, err := opts.GetString("speaker.pronunciation.dictionaries"); err == nil && dictionaries != "" {
-		normalizerNames := strings.Split(dictionaries, commons.SEPARATOR)
-		normalizers = internal_type.BuildNormalizerPipeline(logger, normalizerNames)
-	}
-
 	return &rimeNormalizer{
 		logger:             logger,
 		config:             cfg,
 		language:           language,
-		normalizers:        normalizers,
 		conjunctionPattern: conjunctionPattern,
 	}
 }
 
 // Normalize applies Rime-specific text transformations.
 // Rime uses <ms> syntax for pauses instead of SSML.
-func (n *rimeNormalizer) Normalize(ctx context.Context, text string) string {
+// Markdown removal and whitespace normalization are handled upstream.
+func (n *rimeNormalizer) Normalize(text string) string {
 	if text == "" {
 		return text
-	}
-
-	text = n.removeMarkdown(text)
-
-	for _, normalizer := range n.normalizers {
-		text = normalizer.Normalize(text)
 	}
 
 	if n.conjunctionPattern != nil && n.config.PauseDurationMs > 0 {
 		text = n.insertConjunctionBreaks(text)
 	}
 
-	return strings.TrimSpace(rimeReWhitespace.ReplaceAllString(text, " "))
+	return text
 }
 
 // =============================================================================
 // Private Helpers
 // =============================================================================
-
-func (n *rimeNormalizer) removeMarkdown(input string) string {
-	output := rimeReHeadings.ReplaceAllString(input, "")
-	output = rimeReEmphasis.ReplaceAllString(output, "$1$2")
-	output = rimeReInlineCode.ReplaceAllString(output, "$1")
-	output = rimeReCodeBlock.ReplaceAllString(output, "")
-	output = rimeReBlockquote.ReplaceAllString(output, "")
-	output = rimeReImage.ReplaceAllString(output, "$1")
-	output = rimeReLink.ReplaceAllString(output, "$1")
-	output = rimeReHRule.ReplaceAllString(output, "")
-	output = rimeReLeftover.ReplaceAllString(output, "")
-	return output
-}
 
 // insertConjunctionBreaks adds pauses after conjunctions using Rime's <ms> syntax.
 func (n *rimeNormalizer) insertConjunctionBreaks(text string) string {

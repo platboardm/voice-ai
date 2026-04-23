@@ -226,9 +226,11 @@ func (ConversationInterruption_InterruptionType) EnumDescriptor() ([]byte, []int
 type ConversationDisconnection_DisconnectionType int32
 
 const (
-	ConversationDisconnection_DISCONNECTION_TYPE_UNSPECIFIED ConversationDisconnection_DisconnectionType = 0
-	ConversationDisconnection_DISCONNECTION_TYPE_TOOL        ConversationDisconnection_DisconnectionType = 1
-	ConversationDisconnection_DISCONNECTION_TYPE_USER        ConversationDisconnection_DisconnectionType = 2
+	ConversationDisconnection_DISCONNECTION_TYPE_UNSPECIFIED  ConversationDisconnection_DisconnectionType = 0
+	ConversationDisconnection_DISCONNECTION_TYPE_TOOL         ConversationDisconnection_DisconnectionType = 1
+	ConversationDisconnection_DISCONNECTION_TYPE_USER         ConversationDisconnection_DisconnectionType = 2
+	ConversationDisconnection_DISCONNECTION_TYPE_IDLE_TIMEOUT ConversationDisconnection_DisconnectionType = 3
+	ConversationDisconnection_DISCONNECTION_TYPE_MAX_DURATION ConversationDisconnection_DisconnectionType = 4
 )
 
 // Enum value maps for ConversationDisconnection_DisconnectionType.
@@ -237,11 +239,15 @@ var (
 		0: "DISCONNECTION_TYPE_UNSPECIFIED",
 		1: "DISCONNECTION_TYPE_TOOL",
 		2: "DISCONNECTION_TYPE_USER",
+		3: "DISCONNECTION_TYPE_IDLE_TIMEOUT",
+		4: "DISCONNECTION_TYPE_MAX_DURATION",
 	}
 	ConversationDisconnection_DisconnectionType_value = map[string]int32{
-		"DISCONNECTION_TYPE_UNSPECIFIED": 0,
-		"DISCONNECTION_TYPE_TOOL":        1,
-		"DISCONNECTION_TYPE_USER":        2,
+		"DISCONNECTION_TYPE_UNSPECIFIED":  0,
+		"DISCONNECTION_TYPE_TOOL":         1,
+		"DISCONNECTION_TYPE_USER":         2,
+		"DISCONNECTION_TYPE_IDLE_TIMEOUT": 3,
+		"DISCONNECTION_TYPE_MAX_DURATION": 4,
 	}
 )
 

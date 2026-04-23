@@ -223,6 +223,9 @@ describe('Audio input advanced defaults parity', () => {
     expect(getMetadataValue(defaults, 'microphone.eos.provider')).toBe(
       'pipecat_smart_turn_eos',
     );
+    expect(getMetadataValue(defaults, 'microphone.eos.fallback_timeout')).toBe(
+      '500',
+    );
   });
 
   it('noise provider update clears stale denoising params and keeps only provider', () => {

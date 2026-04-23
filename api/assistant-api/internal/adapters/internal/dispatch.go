@@ -58,17 +58,16 @@ func (r *genericRequestor) OnPacket(ctx context.Context, pkts ...internal_type.P
 			internal_type.EndOfSpeechPacket,
 			internal_type.InterimEndOfSpeechPacket,
 			internal_type.NormalizeInputPacket,
-			internal_type.NormalizedUserTextPacket:
+			internal_type.UserInputPacket:
 			r.inputCh <- e
 
 		// Output — LLM generation, TTS, outbound pipeline
-		case internal_type.ExecuteLLMPacket,
-			internal_type.LLMResponseDeltaPacket,
+		case internal_type.LLMResponseDeltaPacket,
 			internal_type.LLMResponseDonePacket,
 			internal_type.ErrorPacket,
-			internal_type.AggregateTextPacket,
 			internal_type.InjectMessagePacket,
-			internal_type.SpeakTextPacket,
+			internal_type.TTSTextPacket,
+			internal_type.TTSDonePacket,
 			internal_type.TextToSpeechAudioPacket,
 			internal_type.TextToSpeechEndPacket:
 			r.outputCh <- e
@@ -77,6 +76,8 @@ func (r *genericRequestor) OnPacket(ctx context.Context, pkts ...internal_type.P
 		case internal_type.RecordUserAudioPacket,
 			internal_type.RecordAssistantAudioPacket,
 			internal_type.SaveMessagePacket,
+			internal_type.ToolLogCreatePacket,
+			internal_type.ToolLogUpdatePacket,
 			internal_type.ConversationMetricPacket,
 			internal_type.ConversationMetadataPacket,
 			internal_type.AssistantMessageMetricPacket,
@@ -236,8 +237,8 @@ func (r *genericRequestor) dispatch(ctx context.Context, p internal_type.Packet)
 		r.handleEndOfSpeech(ctx, vl)
 	case internal_type.NormalizeInputPacket:
 		r.handleNormalizeInput(ctx, vl)
-	case internal_type.NormalizedUserTextPacket:
-		r.handleNormalizedText(ctx, vl)
+	case internal_type.UserInputPacket:
+		r.handleUserInput(ctx, vl)
 
 		// Interruptions
 	case internal_type.InterruptionDetectedPacket:
@@ -250,8 +251,6 @@ func (r *genericRequestor) dispatch(ctx context.Context, p internal_type.Packet)
 		r.handleContextChange(ctx, vl)
 
 		// LLM pipeline
-	case internal_type.ExecuteLLMPacket:
-		r.handleExecuteLLM(ctx, vl)
 	case internal_type.LLMResponseDeltaPacket:
 		r.handleLLMDelta(ctx, vl)
 	case internal_type.LLMResponseDonePacket:
@@ -259,15 +258,15 @@ func (r *genericRequestor) dispatch(ctx context.Context, p internal_type.Packet)
 	case internal_type.ErrorPacket:
 		r.handleErrorPacket(ctx, vl)
 
-		// Text aggregation
-	case internal_type.AggregateTextPacket:
-		r.handleAggregateText(ctx, vl)
+		// TTS output
+	case internal_type.TTSTextPacket:
+		r.handleTTSText(ctx, vl)
+	case internal_type.TTSDonePacket:
+		r.handleTTSDone(ctx, vl)
 
 		// Static / system-injected
 	case internal_type.InjectMessagePacket:
 		r.handleInjectMessagePacket(ctx, vl)
-	case internal_type.SpeakTextPacket:
-		r.handleSpeakText(ctx, vl)
 	case internal_type.TextToSpeechAudioPacket:
 		r.handleTTSAudio(ctx, vl)
 	case internal_type.TextToSpeechEndPacket:
@@ -286,6 +285,10 @@ func (r *genericRequestor) dispatch(ctx context.Context, p internal_type.Packet)
 		r.handleUserMessageMetadata(ctx, vl)
 	case internal_type.AssistantMessageMetadataPacket:
 		r.handleAssistantMessageMetadata(ctx, vl)
+	case internal_type.ToolLogCreatePacket:
+		r.handleToolLogCreate(ctx, vl)
+	case internal_type.ToolLogUpdatePacket:
+		r.handleToolLogUpdate(ctx, vl)
 	case internal_type.LLMToolCallPacket:
 		r.handleToolCall(ctx, vl)
 	case internal_type.LLMToolResultPacket:
@@ -324,7 +327,7 @@ func (talking *genericRequestor) handleEndOfSpeech(ctx context.Context, vl inter
 func (talking *genericRequestor) handleNormalizeInput(ctx context.Context, vl internal_type.NormalizeInputPacket) {
 	eos := internal_type.EndOfSpeechPacket{ContextID: vl.ContextID, Speech: vl.Speech, Speechs: vl.Speechs}
 	if err := talking.callInputNormalizer(ctx, eos); err != nil {
-		talking.OnPacket(ctx, internal_type.NormalizedUserTextPacket{
+		talking.OnPacket(ctx, internal_type.UserInputPacket{
 			ContextID: vl.ContextID,
 			Text:      vl.Speech,
 		})
@@ -343,26 +346,6 @@ func (talking *genericRequestor) handleInterimEndOfSpeech(ctx context.Context, v
 // =============================================================================
 // Text aggregation handler
 // =============================================================================
-
-// handleAggregateText passes validated LLM output through the text aggregator.
-// The aggregator batches deltas into sentence-sized chunks before emitting
-// SpeakTextPacket. If no aggregator is configured, falls back to direct emit.
-func (talking *genericRequestor) handleAggregateText(ctx context.Context, vl internal_type.AggregateTextPacket) {
-	if talking.textAggregator != nil {
-		// The aggregator expects LLMResponseDelta/DonePacket — convert back.
-		var pkt internal_type.Packet
-		if vl.IsFinal {
-			pkt = internal_type.LLMResponseDonePacket{ContextID: vl.ContextID, Text: vl.Text}
-		} else {
-			pkt = internal_type.LLMResponseDeltaPacket{ContextID: vl.ContextID, Text: vl.Text}
-		}
-		if err := talking.textAggregator.Aggregate(ctx, pkt); err == nil {
-			return
-		}
-	}
-	// Fallback: no aggregator or aggregation error — emit SpeakTextPacket directly.
-	talking.OnPacket(ctx, internal_type.SpeakTextPacket{ContextID: vl.ContextID, Text: vl.Text, IsFinal: vl.IsFinal})
-}
 
 func (talking *genericRequestor) callSpeechToText(ctx context.Context, vl internal_type.UserAudioReceivedPacket) error {
 	if talking.speechToTextTransformer != nil {
@@ -482,17 +465,17 @@ func (talking *genericRequestor) handleSpeechToText(ctx context.Context, vl inte
 }
 
 func (talking *genericRequestor) callInputNormalizer(ctx context.Context, vl internal_type.EndOfSpeechPacket) error {
-	if talking.normalizer == nil {
-		return errors.New("input normalizer not configured")
+	if talking.inputNormalizer == nil {
+		return errors.New("input inputNormalizer not configured")
 	}
-	if err := talking.normalizer.Normalize(ctx, vl); err != nil {
-		talking.logger.Errorf("input normalizer error: %v", err)
+	if err := talking.inputNormalizer.Normalize(ctx, vl); err != nil {
+		talking.logger.Errorf("input inputNormalizer error: %v", err)
 		return err
 	}
 	return nil
 }
 
-func (talking *genericRequestor) handleNormalizedText(ctx context.Context, vl internal_type.NormalizedUserTextPacket) {
+func (talking *genericRequestor) handleUserInput(ctx context.Context, vl internal_type.UserInputPacket) {
 	talking.stopIdleTimeoutTimerAndResetCount()
 	if err := talking.Transition(LLMGenerating); err != nil {
 		talking.logger.Errorf("messaging transition error: %v", err)
@@ -526,8 +509,13 @@ func (talking *genericRequestor) handleNormalizedText(ctx context.Context, vl in
 				Key:   "language_code",
 				Value: vl.Language.ISO639_1,
 			}}},
-		internal_type.UserMessageMetricPacket{ContextID: contextID, Metrics: []*protos.Metric{{Name: "user_turn", Value: type_enums.CONVERSATION_COMPLETE.String(), Description: "User turn started"}}},
-		internal_type.ExecuteLLMPacket{ContextID: contextID, Input: vl.Text, Normalized: vl})
+		internal_type.UserMessageMetricPacket{ContextID: contextID, Metrics: []*protos.Metric{{Name: "user_turn", Value: type_enums.CONVERSATION_COMPLETE.String(), Description: "User turn started"}}})
+
+	utils.Go(ctx, func() {
+		if err := talking.assistantExecutor.Execute(ctx, talking, vl); err != nil {
+			talking.OnPacket(ctx, internal_type.LLMErrorPacket{ContextID: contextID, Error: err})
+		}
+	})
 }
 
 // =============================================================================
@@ -651,16 +639,6 @@ func (talking *genericRequestor) handleInterruptLLM(ctx context.Context, vl inte
 // LLM pipeline handlers
 // =============================================================================
 
-// handleExecuteLLM runs the LLM executor in a goroutine so the dispatcher
-// is not blocked for the duration of the LLM response (which can be seconds).
-func (talking *genericRequestor) handleExecuteLLM(ctx context.Context, vl internal_type.ExecuteLLMPacket) {
-	utils.Go(ctx, func() {
-		if err := talking.assistantExecutor.Execute(ctx, talking, vl.Normalized); err != nil {
-			talking.OnPacket(ctx, internal_type.LLMErrorPacket{ContextID: vl.ContextID, Error: err})
-		}
-	})
-}
-
 func (talking *genericRequestor) handleLLMDelta(ctx context.Context, vl internal_type.LLMResponseDeltaPacket) {
 	if vl.ContextID != talking.GetID() {
 		talking.OnPacket(ctx, internal_type.ConversationEventPacket{
@@ -674,7 +652,11 @@ func (talking *genericRequestor) handleLLMDelta(ctx context.Context, vl internal
 	if err := talking.Transition(LLMGenerating); err != nil {
 		talking.logger.Errorf("messaging transition error: %v", err)
 	}
-	talking.OnPacket(ctx, internal_type.AggregateTextPacket{ContextID: vl.ContextID, Text: vl.Text, IsFinal: false})
+	if talking.outputNormalizer != nil {
+		talking.outputNormalizer.Normalize(ctx, vl)
+	} else {
+		talking.OnPacket(ctx, internal_type.TTSTextPacket{ContextID: vl.ContextID, Text: vl.Text})
+	}
 }
 
 func (talking *genericRequestor) handleLLMDone(ctx context.Context, vl internal_type.LLMResponseDonePacket) {
@@ -697,8 +679,12 @@ func (talking *genericRequestor) handleLLMDone(ctx context.Context, vl internal_
 			ContextID: vl.ContextID,
 			Metrics:   []*protos.Metric{{Name: "assistant_turn", Value: type_enums.CONVERSATION_COMPLETE.String(), Description: fmt.Sprintf("LLM response completed")}},
 		},
-		internal_type.AggregateTextPacket{ContextID: vl.ContextID, Text: vl.Text, IsFinal: true},
 	)
+	if talking.outputNormalizer != nil {
+		talking.outputNormalizer.Normalize(ctx, vl)
+	} else {
+		talking.OnPacket(ctx, internal_type.TTSDonePacket{ContextID: vl.ContextID, Text: vl.Text})
+	}
 }
 
 func (talking *genericRequestor) handleErrorPacket(ctx context.Context, vl internal_type.ErrorPacket) {
@@ -763,50 +749,63 @@ func (talking *genericRequestor) handleInjectMessagePacket(ctx context.Context, 
 	// GetID() returns the original context — both cases are correct.
 	contextID := talking.GetID()
 
-	// Emit as LLMResponseDelta + LLMResponseDone so the output pipeline
-	// handles aggregation, TTS, state transitions (LLMGenerated), and idle
-	// timer naturally — all on the output dispatcher goroutine in order.
-	talking.OnPacket(ctx,
-		internal_type.LLMResponseDeltaPacket{ContextID: contextID, Text: vl.Text},
-		internal_type.LLMResponseDonePacket{ContextID: contextID, Text: vl.Text},
-	)
+	if talking.outputNormalizer != nil {
+		// Normalizer path: save/metrics/transition here since handleLLMDone is bypassed.
+		talking.OnPacket(ctx,
+			internal_type.SaveMessagePacket{ContextID: contextID, MessageRole: "assistant", Text: vl.Text},
+			internal_type.AssistantMessageMetricPacket{
+				ContextID: contextID,
+				Metrics:   []*protos.Metric{{Name: "assistant_turn", Value: type_enums.CONVERSATION_COMPLETE.String(), Description: "Injected message completed"}},
+			},
+		)
+		talking.outputNormalizer.Normalize(ctx, internal_type.InjectMessagePacket{ContextID: contextID, Text: vl.Text})
+		if err := talking.Transition(LLMGenerated); err != nil {
+			talking.logger.Errorf("messaging transition error: %v", err)
+		}
+		talking.startIdleTimeoutTimer(ctx)
+	} else {
+		// Fallback: LLMResponseDelta/Done flow through handleLLMDelta/handleLLMDone
+		// which handle save, metrics, transition, and idle timer.
+		talking.OnPacket(ctx,
+			internal_type.LLMResponseDeltaPacket{ContextID: contextID, Text: vl.Text},
+			internal_type.LLMResponseDonePacket{ContextID: contextID, Text: vl.Text},
+		)
+	}
 }
 
 // =============================================================================
 // TTS pipeline handlers
 // =============================================================================
 
-func (talking *genericRequestor) handleSpeakText(ctx context.Context, vl internal_type.SpeakTextPacket) {
+func (talking *genericRequestor) handleTTSText(ctx context.Context, vl internal_type.TTSTextPacket) {
 	if vl.ContextID != talking.GetID() {
-		talking.OnPacket(ctx, internal_type.ConversationEventPacket{
-			ContextID: vl.ContextID,
-			Name:      "tts",
-			Data:      map[string]string{"type": "discarded", "reason": "stale_context", "packet": "speak_text", "current_context": talking.GetID()},
-			Time:      time.Now(),
-		})
 		return
 	}
-
 	if talking.textToSpeechTransformer != nil && talking.GetMode().Audio() {
-		if vl.IsFinal {
-			if err := talking.textToSpeechTransformer.Transform(ctx, internal_type.LLMResponseDonePacket{ContextID: vl.ContextID, Text: vl.Text}); err != nil {
-				talking.logger.Errorf("speak: failed to send to TTS: %v", err)
-			}
-		} else {
-			if err := talking.textToSpeechTransformer.Transform(ctx, internal_type.LLMResponseDeltaPacket{ContextID: vl.ContextID, Text: vl.Text}); err != nil {
-				talking.logger.Errorf("speak: failed to send to TTS: %v", err)
-			}
+		if err := talking.textToSpeechTransformer.Transform(ctx, vl); err != nil {
+			talking.logger.Errorf("tts text: failed to send chunk: %v", err)
 		}
+	}
+	talking.Notify(ctx, &protos.ConversationAssistantMessage{
+		Time: timestamppb.Now(), Id: vl.ContextID, Completed: false,
+		Message: &protos.ConversationAssistantMessage_Text{Text: vl.Text},
+	})
+}
 
+func (talking *genericRequestor) handleTTSDone(ctx context.Context, vl internal_type.TTSDonePacket) {
+	if vl.ContextID != talking.GetID() {
+		return
 	}
-	if err := talking.Notify(ctx, &protos.ConversationAssistantMessage{
-		Time:      timestamppb.Now(),
-		Id:        vl.ContextID,
-		Completed: vl.IsFinal,
-		Message:   &protos.ConversationAssistantMessage_Text{Text: vl.Text},
-	}); err != nil {
-		talking.logger.Tracef(ctx, "error while outputting chunk to the user: %w", err)
+	talking.startIdleTimeoutTimer(ctx)
+	if talking.textToSpeechTransformer != nil && talking.GetMode().Audio() {
+		if err := talking.textToSpeechTransformer.Transform(ctx, vl); err != nil {
+			talking.logger.Errorf("tts done: failed to send final: %v", err)
+		}
 	}
+	talking.Notify(ctx, &protos.ConversationAssistantMessage{
+		Time: timestamppb.Now(), Id: vl.ContextID, Completed: true,
+		Message: &protos.ConversationAssistantMessage_Text{Text: vl.Text},
+	})
 }
 
 func (talking *genericRequestor) handleTTSAudio(ctx context.Context, vl internal_type.TextToSpeechAudioPacket) {
@@ -971,15 +970,7 @@ func (talking *genericRequestor) handleAssistantMessageMetadata(ctx context.Cont
 // =============================================================================
 
 func (talking *genericRequestor) handleToolCall(ctx context.Context, vl internal_type.LLMToolCallPacket) {
-	if talking.assistantExecutor != nil {
-		if err := talking.assistantExecutor.Execute(ctx, talking, vl); err != nil {
-			talking.logger.Errorf("assistant executor error: %v", err)
-		}
-	}
-	req, _ := json.Marshal(vl)
-	if err := talking.CreateToolLog(ctx, vl.ContextID, vl.ToolID, vl.Name, type_enums.RECORD_IN_PROGRESS, req); err != nil {
-		talking.logger.Errorf("error logging tool call start: %v", err)
-	}
+	// Notify client + emit event (fast, stays on critical)
 	talking.OnPacket(ctx, internal_type.ConversationEventPacket{
 		ContextID: vl.ContextID,
 		Name:      observe.ComponentTool,
@@ -987,27 +978,35 @@ func (talking *genericRequestor) handleToolCall(ctx context.Context, vl internal
 		Time:      time.Now(),
 	})
 	talking.Notify(ctx, &protos.ConversationToolCall{
-		Id:     vl.ContextID,
-		ToolId: vl.ToolID,
-		Name:   vl.Name,
-		Action: vl.Action,
-		Args:   vl.Arguments,
-		Time:   timestamppb.Now(),
+		Id: vl.ContextID, ToolId: vl.ToolID, Name: vl.Name,
+		Action: vl.Action, Args: vl.Arguments, Time: timestamppb.Now(),
 	})
 
+	if vl.Action != protos.ToolCallAction_TOOL_CALL_ACTION_UNSPECIFIED {
+		talking.stopIdleTimeoutTimer()
+		if talking.maxSessionTimer != nil {
+			talking.maxSessionTimer.Stop()
+		}
+	}
+
+	// DB write → lowCh (non-blocking)
+	req, _ := json.Marshal(vl)
+	talking.OnPacket(ctx, internal_type.ToolLogCreatePacket{
+		ContextID: vl.ContextID, ToolID: vl.ToolID, Name: vl.Name, Request: req,
+	})
+
+	// Executor → async goroutine
+	if talking.assistantExecutor != nil {
+		utils.Go(ctx, func() {
+			if err := talking.assistantExecutor.Execute(ctx, talking, vl); err != nil {
+				talking.logger.Errorf("assistant executor error: %v", err)
+			}
+		})
+	}
 }
 
 func (talking *genericRequestor) handleToolResult(ctx context.Context, vl internal_type.LLMToolResultPacket) {
-	if talking.assistantExecutor != nil {
-		if err := talking.assistantExecutor.Execute(ctx, talking, vl); err != nil {
-			talking.logger.Errorf("tool result processing failed: %v", err)
-		}
-	}
-	res, _ := json.Marshal(vl)
-	if err := talking.UpdateToolLog(ctx, vl.ToolID, type_enums.RECORD_COMPLETE, res); err != nil {
-		talking.logger.Errorf("error logging tool call result: %v", err)
-	}
-
+	// Event (fast, stays on critical)
 	talking.OnPacket(ctx, internal_type.ConversationEventPacket{
 		ContextID: vl.ContextID,
 		Name:      observe.ComponentTool,
@@ -1015,6 +1014,36 @@ func (talking *genericRequestor) handleToolResult(ctx context.Context, vl intern
 		Time:      time.Now(),
 	})
 
+	if vl.Action != protos.ToolCallAction_TOOL_CALL_ACTION_UNSPECIFIED {
+		talking.restartTimers(ctx)
+	}
+
+	// DB write → lowCh (non-blocking)
+	res, _ := json.Marshal(vl)
+	talking.OnPacket(ctx, internal_type.ToolLogUpdatePacket{
+		ContextID: vl.ContextID, ToolID: vl.ToolID, Response: res,
+	})
+
+	// Executor → async goroutine
+	if talking.assistantExecutor != nil {
+		utils.Go(ctx, func() {
+			if err := talking.assistantExecutor.Execute(ctx, talking, vl); err != nil {
+				talking.logger.Errorf("tool result processing failed: %v", err)
+			}
+		})
+	}
+}
+
+func (talking *genericRequestor) handleToolLogCreate(ctx context.Context, vl internal_type.ToolLogCreatePacket) {
+	if err := talking.CreateToolLog(ctx, vl.ContextID, vl.ToolID, vl.Name, type_enums.RECORD_IN_PROGRESS, vl.Request); err != nil {
+		talking.logger.Errorf("error logging tool call start: %v", err)
+	}
+}
+
+func (talking *genericRequestor) handleToolLogUpdate(ctx context.Context, vl internal_type.ToolLogUpdatePacket) {
+	if err := talking.UpdateToolLog(ctx, vl.ToolID, type_enums.RECORD_COMPLETE, vl.Response); err != nil {
+		talking.logger.Errorf("error logging tool call result: %v", err)
+	}
 }
 
 // =============================================================================

@@ -194,7 +194,7 @@ func (t *deepgramTTS) readLoop(conn *websocket.Conn) {
 }
 
 // Transform streams text into Deepgram
-func (t *deepgramTTS) Transform(ctx context.Context, in internal_type.LLMPacket) error {
+func (t *deepgramTTS) Transform(ctx context.Context, in internal_type.Packet) error {
 	t.mu.Lock()
 	if in.ContextId() != t.contextId {
 		t.contextId = in.ContextId()
@@ -226,7 +226,7 @@ func (t *deepgramTTS) Transform(ctx context.Context, in internal_type.LLMPacket)
 		}
 		return nil
 
-	case internal_type.LLMResponseDeltaPacket:
+	case internal_type.TTSTextPacket:
 		// Fallback reconnect: handles Initialize() failure or an unintentional drop.
 		if connection == nil {
 			if err := t.Initialize(); err != nil {
@@ -245,7 +245,7 @@ func (t *deepgramTTS) Transform(ctx context.Context, in internal_type.LLMPacket)
 			}
 			t.mu.Unlock()
 		}
-		normalized := t.normalizer.Normalize(ctx, input.Text)
+		normalized := t.normalizer.Normalize(input.Text)
 		if err := connection.WriteJSON(map[string]interface{}{
 			"type": "Speak",
 			"text": normalized,
@@ -263,7 +263,7 @@ func (t *deepgramTTS) Transform(ctx context.Context, in internal_type.LLMPacket)
 		})
 		return nil
 
-	case internal_type.LLMResponseDonePacket:
+	case internal_type.TTSDonePacket:
 		// Interrupted before done arrived — nothing to flush.
 		if connection == nil {
 			return nil

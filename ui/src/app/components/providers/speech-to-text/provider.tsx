@@ -61,7 +61,7 @@ export const GetDefaultMicrophoneConfig = (
   const defaultConfig = [
     {
       key: 'microphone.eos.fallback_timeout',
-      value: defaults?.['microphone.eos.fallback_timeout'] ?? '700',
+      value: defaults?.['microphone.eos.fallback_timeout'] ?? '500',
     },
     {
       key: 'microphone.eos.provider',

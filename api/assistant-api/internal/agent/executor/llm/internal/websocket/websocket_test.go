@@ -91,9 +91,9 @@ func TestHandleResponse_Stream_CurrentContextEmits(t *testing.T) {
 	assert.Equal(t, "hello", delta.Text)
 }
 
-func TestExecute_NormalizedUserTextPacket_EmptyContextNoop(t *testing.T) {
+func TestExecute_UserInputPacket_EmptyContextNoop(t *testing.T) {
 	e := newTestExecutor(t)
-	err := e.Execute(context.Background(), nil, internal_type.NormalizedUserTextPacket{Text: "hello"})
+	err := e.Execute(context.Background(), nil, internal_type.UserInputPacket{Text: "hello"})
 	require.NoError(t, err)
 	assert.Equal(t, "", e.currentID)
 }
@@ -513,7 +513,7 @@ func TestConcurrency_ExecuteAndInterruptRace(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 200; i++ {
-			_ = e.Execute(context.Background(), nil, internal_type.NormalizedUserTextPacket{
+			_ = e.Execute(context.Background(), nil, internal_type.UserInputPacket{
 				ContextID: fmt.Sprintf("ctx-%d", i),
 				Text:      fmt.Sprintf("msg-%d", i),
 			})
