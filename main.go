@@ -24,7 +24,8 @@ func main() {
 	defer cancel()
 
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	// Also handle SIGHUP so I can reload config without a full restart
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
 		sig := <-quit
 		log.Printf("received signal %s, shutting down...", sig)
