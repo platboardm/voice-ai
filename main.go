@@ -41,6 +41,8 @@ func main() {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	log.Printf("voice-ai server starting on %s", addr)
 	log.Printf("environment: %s", cfg.Env)
+	// Log the process ID so I can easily send signals during local development
+	log.Printf("pid: %d", os.Getpid())
 
 	if err := srv.Run(ctx, addr); err != nil {
 		log.Fatalf("server exited with error: %v", err)
